@@ -23,6 +23,8 @@ export type RollRequest = {
   modifier: number;
 };
 
+export type RollVisibility = "public" | "dm";
+
 export type RollTermResult = ValidDiceTerm & {
   results: number[];
 };
@@ -40,6 +42,7 @@ export type Roll = {
   results: number[];
   total: number;
   timestamp: number;
+  visibility: RollVisibility;
 };
 
 export type RollInput = {
@@ -50,6 +53,7 @@ export type RollInput = {
   sides?: number;
   terms?: DiceTerm[];
   modifier: number;
+  visibility?: RollVisibility;
 };
 
 export type ValidationResult =
@@ -230,6 +234,7 @@ export function createRoll(input: RollInput): Roll {
     terms,
     results,
     total,
-    timestamp: Date.now()
+    timestamp: Date.now(),
+    visibility: input.visibility ?? "public"
   };
 }

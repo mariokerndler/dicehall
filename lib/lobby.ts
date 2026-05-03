@@ -14,6 +14,7 @@ export type Lobby = {
   hostId: string;
   players: Player[];
   rolls: Roll[];
+  privateRolls: Roll[];
   createdAt: number;
   updatedAt: number;
 };
@@ -23,6 +24,7 @@ export type LobbyState = {
   hostId: string;
   players: Player[];
   rolls: Roll[];
+  privateRolls?: Roll[];
 };
 
 const CODE_PATTERN = /^[A-Z0-9]{6}$/;
@@ -121,6 +123,7 @@ export function createLobby(
       }
     ],
     rolls: [],
+    privateRolls: [],
     createdAt: now,
     updatedAt: now
   };
@@ -179,16 +182,25 @@ export function addRoll(lobby: Lobby, roll: Roll): void {
   lobby.updatedAt = Date.now();
 }
 
-export function clearRolls(lobby: Lobby): void {
-  lobby.rolls = [];
+export function addPrivateRoll(lobby: Lobby, roll: Roll): void {
+  lobby.privateRolls = [roll, ...lobby.privateRolls].slice(0, MAX_LOG_LENGTH);
   lobby.updatedAt = Date.now();
 }
 
-export function toLobbyState(lobby: Lobby): LobbyState {
+export function clearRolls(lobby: Lobby): void {
+  lobby.rolls = [];
+  lobby.privateRolls = [];
+  lobby.updatedAt = Date.now();
+}
+
+export function toLobbyState(lobby: Lobby, viewerId?: string): LobbyState {
+  const canSeePrivateRoll = (roll: Roll) => viewerId === lobby.hostId || viewerId === roll.playerId;
+
   return {
     code: lobby.code,
     hostId: lobby.hostId,
     players: lobby.players,
-    rolls: lobby.rolls
+    rolls: lobby.rolls,
+    privateRolls: viewerId ? lobby.privateRolls.filter(canSeePrivateRoll) : undefined
   };
 }

@@ -6,12 +6,13 @@ import {
   formatRollRequestExpression,
   SUPPORTED_DICE,
   type DiceSides,
-  type DiceTerm
+  type DiceTerm,
+  type RollVisibility
 } from "../lib/dice";
 
 type DiceRollerProps = {
   diceColor: string;
-  onRoll: (request: { terms: DiceTerm[]; modifier: number }) => void;
+  onRoll: (request: { terms: DiceTerm[]; modifier: number; visibility: RollVisibility }) => void;
   disabled?: boolean;
 };
 
@@ -30,6 +31,7 @@ function createDraftTerm(sides: DiceSides = 20): DraftTerm {
 export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
   const [terms, setTerms] = useState<DraftTerm[]>(() => [createDraftTerm(20)]);
   const [modifier, setModifier] = useState(0);
+  const [visibility, setVisibility] = useState<RollVisibility>("public");
 
   const expression = useMemo(() => {
     try {
@@ -149,13 +151,29 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
         </label>
       </div>
 
+      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-white/[0.035] p-3">
+        <input
+          type="checkbox"
+          checked={visibility === "dm"}
+          onChange={(event) => setVisibility(event.target.checked ? "dm" : "public")}
+          className="mt-1 h-4 w-4 rounded border-white/20 bg-ink-950 text-brass focus:ring-brass"
+        />
+        <span>
+          <span className="block text-sm font-bold text-stone-100">Show only to DM</span>
+          <span className="mt-1 block text-xs leading-5 text-stone-400">
+            Only you and the DM will see the result.
+          </span>
+        </span>
+      </label>
+
       <button
         type="button"
         disabled={disabled}
         onClick={() =>
           onRoll({
             terms: terms.map((term) => ({ quantity: term.quantity, sides: term.sides })),
-            modifier
+            modifier,
+            visibility
           })
         }
         className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-brass px-5 text-sm font-black uppercase tracking-[0.14em] text-ink-950 transition hover:bg-[#e2ad66] focus:outline-none focus:ring-2 focus:ring-brass focus:ring-offset-2 focus:ring-offset-ink-950 disabled:cursor-not-allowed disabled:opacity-50"

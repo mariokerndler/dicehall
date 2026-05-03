@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3, ScrollText } from "lucide-react";
+import { Clock3, EyeOff, ScrollText } from "lucide-react";
 import type { Roll } from "../lib/dice";
 
 type RollLogProps = {
@@ -61,6 +61,12 @@ export function RollLog({ rolls }: RollLogProps) {
                   <p className="font-black text-stone-50">
                     <span style={{ color: roll.diceColor }}>{roll.playerName}</span> rolled{" "}
                     {roll.expression}
+                    {roll.visibility === "dm" ? (
+                      <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-arcane/40 bg-arcane/10 px-2 py-0.5 align-middle text-[0.68rem] font-black uppercase tracking-[0.12em] text-arcane">
+                        <EyeOff size={12} />
+                        DM only
+                      </span>
+                    ) : null}
                   </p>
                   <p className="mt-1 text-sm text-stone-300">{resultText(roll)}</p>
                 </div>

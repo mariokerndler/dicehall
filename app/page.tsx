@@ -9,7 +9,7 @@ import { HostControls } from "../components/HostControls";
 import { LobbyHeader } from "../components/LobbyHeader";
 import { PlayerList } from "../components/PlayerList";
 import { RollLog } from "../components/RollLog";
-import type { DiceTerm, Roll } from "../lib/dice";
+import type { DiceTerm, Roll, RollVisibility } from "../lib/dice";
 import type { LobbyState, Player } from "../lib/lobby";
 import { normalizeLobbyCode } from "../lib/lobby";
 
@@ -18,6 +18,7 @@ type PendingRoll = {
   playerName: string;
   diceColor: string;
   expression: string;
+  visibility: RollVisibility;
 };
 
 type Ack<T> = { ok: true; data: T } | { ok: false; error: string };
@@ -212,7 +213,12 @@ export default function Home() {
     );
   }
 
-  function rollDice(request: { terms: DiceTerm[]; modifier: number }) {
+  const visibleRolls = useMemo(() => {
+    const privateRolls = lobby?.privateRolls ?? [];
+    return [...(lobby?.rolls ?? []), ...privateRolls].sort((first, second) => second.timestamp - first.timestamp);
+  }, [lobby?.privateRolls, lobby?.rolls]);
+
+  function rollDice(request: { terms: DiceTerm[]; modifier: number; visibility: RollVisibility }) {
     if (!lobby) {
       return;
     }
@@ -296,7 +302,7 @@ export default function Home() {
               />
               <div className="grid gap-5">
                 <DiceAnimation pendingRolls={pendingRolls} />
-                <RollLog rolls={lobby.rolls} />
+                <RollLog rolls={visibleRolls} />
               </div>
             </div>
 

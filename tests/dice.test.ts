@@ -85,6 +85,19 @@ describe("dice logic", () => {
     expect(roll.total).toBe(roll.results[0] + roll.results[1] + 2);
   });
 
+  it("marks DM-only rolls with private visibility", () => {
+    const roll = createRoll({
+      playerId: "p1",
+      playerName: "Alice",
+      diceColor: "#d79b4a",
+      terms: [{ quantity: 1, sides: 20 }],
+      modifier: 0,
+      visibility: "dm"
+    });
+
+    expect(roll.visibility).toBe("dm");
+  });
+
   it("rejects unsupported dice, empty quantities, and unsafe modifiers", () => {
     expect(validateDiceRequest({ quantity: 1, sides: 13, modifier: 0 }).ok).toBe(false);
     expect(validateDiceRequest({ quantity: 0, sides: 20, modifier: 0 }).ok).toBe(false);

@@ -1,8 +1,9 @@
 import type { Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
-import { createRoll, validateRollRequest, type DiceTerm } from "../lib/dice";
+import { createRoll, validateRollRequest, type DiceTerm, type RollVisibility } from "../lib/dice";
 import {
   addOrReconnectPlayer,
+  addPrivateRoll,
   addRoll,
   cleanUsername,
   clearRolls,
@@ -32,12 +33,16 @@ type RollPayload = {
   playerId: string;
   terms: DiceTerm[];
   modifier: number;
+  visibility?: RollVisibility;
 };
 
 const lobbies = new Map<string, Lobby>();
 
 function emitLobbyState(io: Server, lobby: Lobby) {
   io.to(lobby.code).emit("lobby:state", toLobbyState(lobby));
+  for (const player of lobby.players) {
+    io.to(playerRoom(lobby.code, player.id)).emit("lobby:state", toLobbyState(lobby, player.id));
+  }
 }
 
 function getLobby(code: string): Lobby | undefined {
@@ -50,6 +55,10 @@ function getPlayer(lobby: Lobby, playerId: string) {
 
 function requireHost(lobby: Lobby, playerId: string): string | null {
   return lobby.hostId === playerId ? null : "Only the DM can use that control.";
+}
+
+function playerRoom(code: string, playerId: string): string {
+  return `${code}:player:${playerId}`;
 }
 
 export function attachRealtimeServer(httpServer: HttpServer) {
@@ -76,9 +85,10 @@ export function attachRealtimeServer(httpServer: HttpServer) {
 
       lobbies.set(code, lobby);
       socket.join(code);
+      socket.join(playerRoom(code, payload.playerId));
       socket.data.lobbyCode = code;
       socket.data.playerId = payload.playerId;
-      ack?.({ ok: true, data: toLobbyState(lobby) });
+      ack?.({ ok: true, data: toLobbyState(lobby, payload.playerId) });
       emitLobbyState(io, lobby);
     });
 
@@ -109,9 +119,16 @@ export function attachRealtimeServer(httpServer: HttpServer) {
       });
 
       socket.join(code);
+      socket.join(playerRoom(code, payload.playerId));
       socket.data.lobbyCode = code;
       socket.data.playerId = payload.playerId;
-      ack?.({ ok: true, data: { state: toLobbyState(lobby), player } });
+      ack?.({
+        ok: true,
+        data: {
+          state: toLobbyState(lobby, payload.playerId),
+          player
+        }
+      });
       emitLobbyState(io, lobby);
     });
 
@@ -145,14 +162,27 @@ export function attachRealtimeServer(httpServer: HttpServer) {
         playerName: player.username,
         diceColor: player.diceColor,
         terms: validation.terms,
-        modifier: validation.modifier
+        modifier: validation.modifier,
+        visibility: payload.visibility === "dm" ? "dm" : "public"
       });
 
-      io.to(lobby.code).emit("roll:start", {
+      const privateTargetRooms =
+        roll.playerId === lobby.hostId
+          ? [playerRoom(lobby.code, lobby.hostId)]
+          : [playerRoom(lobby.code, lobby.hostId), playerRoom(lobby.code, roll.playerId)];
+      const targetRooms = roll.visibility === "dm" ? privateTargetRooms : [lobby.code];
+
+      let target = io.to(targetRooms[0]);
+      for (const room of targetRooms.slice(1)) {
+        target = target.to(room);
+      }
+
+      target.emit("roll:start", {
         id: roll.id,
         playerName: roll.playerName,
         diceColor: roll.diceColor,
-        expression: roll.expression
+        expression: roll.expression,
+        visibility: roll.visibility
       });
 
       ack?.({ ok: true, data: { rollId: roll.id } });
@@ -164,8 +194,18 @@ export function attachRealtimeServer(httpServer: HttpServer) {
           return;
         }
 
-        addRoll(latestLobby, roll);
-        io.to(latestLobby.code).emit("roll:committed", roll);
+        if (roll.visibility === "dm") {
+          addPrivateRoll(latestLobby, roll);
+        } else {
+          addRoll(latestLobby, roll);
+        }
+
+        let commitTarget = io.to(targetRooms[0]);
+        for (const room of targetRooms.slice(1)) {
+          commitTarget = commitTarget.to(room);
+        }
+
+        commitTarget.emit("roll:committed", roll);
         emitLobbyState(io, latestLobby);
       }, 900);
     });
