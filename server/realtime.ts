@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from "node:http";
 import { Server } from "socket.io";
-import { createRoll, validateDiceRequest } from "../lib/dice";
+import { createRoll, validateRollRequest, type DiceTerm } from "../lib/dice";
 import {
   addOrReconnectPlayer,
   addRoll,
@@ -30,8 +30,7 @@ type JoinLobbyPayload = CreateLobbyPayload & {
 type RollPayload = {
   code: string;
   playerId: string;
-  quantity: number;
-  sides: number;
+  terms: DiceTerm[];
   modifier: number;
 };
 
@@ -131,7 +130,10 @@ export function attachRealtimeServer(httpServer: HttpServer) {
         return;
       }
 
-      const validation = validateDiceRequest(payload);
+      const validation = validateRollRequest({
+        terms: payload.terms,
+        modifier: payload.modifier
+      });
 
       if (!validation.ok) {
         ack?.({ ok: false, error: validation.error });
@@ -142,8 +144,7 @@ export function attachRealtimeServer(httpServer: HttpServer) {
         playerId: player.id,
         playerName: player.username,
         diceColor: player.diceColor,
-        quantity: validation.quantity,
-        sides: validation.sides,
+        terms: validation.terms,
         modifier: validation.modifier
       });
 

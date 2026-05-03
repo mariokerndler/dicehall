@@ -9,7 +9,7 @@ import { HostControls } from "../components/HostControls";
 import { LobbyHeader } from "../components/LobbyHeader";
 import { PlayerList } from "../components/PlayerList";
 import { RollLog } from "../components/RollLog";
-import type { Roll, DiceSides } from "../lib/dice";
+import type { DiceTerm, Roll } from "../lib/dice";
 import type { LobbyState, Player } from "../lib/lobby";
 import { normalizeLobbyCode } from "../lib/lobby";
 
@@ -212,7 +212,7 @@ export default function Home() {
     );
   }
 
-  function rollDice(request: { quantity: number; sides: DiceSides; modifier: number }) {
+  function rollDice(request: { terms: DiceTerm[]; modifier: number }) {
     if (!lobby) {
       return;
     }

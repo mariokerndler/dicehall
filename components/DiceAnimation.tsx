@@ -12,12 +12,16 @@ type DiceAnimationProps = {
 };
 
 function getDiceCount(expression?: string): number {
-  const quantity = Number(expression?.match(/^(\d+)d/)?.[1] ?? 1);
+  const quantities = Array.from(expression?.matchAll(/(\d+)d\d+/g) ?? []).map((match) =>
+    Number(match[1])
+  );
+  const quantity = quantities.reduce((sum, value) => sum + value, 0) || 1;
   return Math.min(Math.max(quantity, 1), 6);
 }
 
 function getDieLabel(expression?: string): string {
-  return expression?.match(/\dd(\d+)/)?.[1] ?? "?";
+  const labels = Array.from(expression?.matchAll(/\dd(\d+)/g) ?? []).map((match) => match[1]);
+  return labels.length > 1 ? "*" : labels[0] ?? "?";
 }
 
 function DiceFace({

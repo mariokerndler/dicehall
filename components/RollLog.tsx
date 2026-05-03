@@ -16,7 +16,11 @@ function formatTime(timestamp: number) {
 }
 
 function resultText(roll: Roll) {
-  const results = `[${roll.results.join(", ")}]`;
+  const results = roll.terms?.length
+    ? roll.terms
+        .map((term) => `${term.quantity}d${term.sides} [${term.results.join(", ")}]`)
+        .join(" + ")
+    : `[${roll.results.join(", ")}]`;
 
   if (roll.modifier > 0) {
     return `${results} + ${roll.modifier} = ${roll.total}`;

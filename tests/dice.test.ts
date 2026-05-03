@@ -3,7 +3,10 @@ import {
   calculateTotal,
   createRoll,
   formatRollExpression,
+  formatRollRequestExpression,
   rollDice,
+  rollDiceTerms,
+  validateRollRequest,
   validateDiceRequest
 } from "../lib/dice";
 
@@ -44,9 +47,51 @@ describe("dice logic", () => {
     expect(roll.timestamp).toEqual(expect.any(Number));
   });
 
+  it("formats and rolls multiple different dice terms", () => {
+    const request = {
+      terms: [
+        { quantity: 1, sides: 4 },
+        { quantity: 1, sides: 8 }
+      ],
+      modifier: 0
+    };
+
+    expect(formatRollRequestExpression(request)).toBe("1d4 + 1d8");
+
+    const termResults = rollDiceTerms(request.terms);
+    expect(termResults).toHaveLength(2);
+    expect(termResults[0].results).toHaveLength(1);
+    expect(termResults[0].results[0]).toBeGreaterThanOrEqual(1);
+    expect(termResults[0].results[0]).toBeLessThanOrEqual(4);
+    expect(termResults[1].results[0]).toBeGreaterThanOrEqual(1);
+    expect(termResults[1].results[0]).toBeLessThanOrEqual(8);
+  });
+
+  it("creates a mixed dice roll with grouped individual results", () => {
+    const roll = createRoll({
+      playerId: "p1",
+      playerName: "Alice",
+      diceColor: "#d79b4a",
+      terms: [
+        { quantity: 1, sides: 4 },
+        { quantity: 1, sides: 8 }
+      ],
+      modifier: 2
+    });
+
+    expect(roll.expression).toBe("1d4 + 1d8 + 2");
+    expect(roll.terms).toHaveLength(2);
+    expect(roll.results).toHaveLength(2);
+    expect(roll.total).toBe(roll.results[0] + roll.results[1] + 2);
+  });
+
   it("rejects unsupported dice, empty quantities, and unsafe modifiers", () => {
     expect(validateDiceRequest({ quantity: 1, sides: 13, modifier: 0 }).ok).toBe(false);
     expect(validateDiceRequest({ quantity: 0, sides: 20, modifier: 0 }).ok).toBe(false);
     expect(validateDiceRequest({ quantity: 1, sides: 20, modifier: 1000 }).ok).toBe(false);
+    expect(validateRollRequest({ terms: [], modifier: 0 }).ok).toBe(false);
+    expect(validateRollRequest({ terms: [{ quantity: 1, sides: 20 }], modifier: 1000 }).ok).toBe(
+      false
+    );
   });
 });

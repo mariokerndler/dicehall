@@ -8,15 +8,35 @@ export type DiceRequest = {
   modifier: number;
 };
 
+export type DiceTerm = {
+  quantity: number;
+  sides: number;
+};
+
+export type ValidDiceTerm = {
+  quantity: number;
+  sides: DiceSides;
+};
+
+export type RollRequest = {
+  terms: DiceTerm[];
+  modifier: number;
+};
+
+export type RollTermResult = ValidDiceTerm & {
+  results: number[];
+};
+
 export type Roll = {
   id: string;
   playerId: string;
   playerName: string;
   diceColor: string;
-  quantity: number;
-  sides: DiceSides;
+  quantity?: number;
+  sides?: DiceSides;
   modifier: number;
   expression: string;
+  terms: RollTermResult[];
   results: number[];
   total: number;
   timestamp: number;
@@ -26,8 +46,9 @@ export type RollInput = {
   playerId: string;
   playerName: string;
   diceColor: string;
-  quantity: number;
-  sides: number;
+  quantity?: number;
+  sides?: number;
+  terms?: DiceTerm[];
   modifier: number;
 };
 
@@ -35,7 +56,12 @@ export type ValidationResult =
   | { ok: true; quantity: number; sides: DiceSides; modifier: number }
   | { ok: false; error: string };
 
+export type RollValidationResult =
+  | { ok: true; terms: ValidDiceTerm[]; modifier: number }
+  | { ok: false; error: string };
+
 const MAX_QUANTITY = 20;
+const MAX_TERMS = 8;
 const MIN_MODIFIER = -99;
 const MAX_MODIFIER = 99;
 
@@ -63,6 +89,44 @@ export function validateDiceRequest(request: DiceRequest): ValidationResult {
   return { ok: true, quantity, sides, modifier };
 }
 
+export function validateRollRequest(request: RollRequest): RollValidationResult {
+  const modifier = Number(request.modifier);
+
+  if (!Number.isInteger(modifier) || modifier < MIN_MODIFIER || modifier > MAX_MODIFIER) {
+    return { ok: false, error: `Modifier must be between ${MIN_MODIFIER} and ${MAX_MODIFIER}.` };
+  }
+
+  if (!Array.isArray(request.terms) || request.terms.length < 1 || request.terms.length > MAX_TERMS) {
+    return { ok: false, error: `Choose between 1 and ${MAX_TERMS} dice groups.` };
+  }
+
+  const terms: ValidDiceTerm[] = [];
+  const totalDice = request.terms.reduce((sum, term) => sum + Number(term.quantity), 0);
+
+  if (!Number.isInteger(totalDice) || totalDice < 1 || totalDice > MAX_QUANTITY) {
+    return { ok: false, error: `Choose between 1 and ${MAX_QUANTITY} total dice.` };
+  }
+
+  for (const term of request.terms) {
+    const validation = validateDiceRequest({
+      quantity: term.quantity,
+      sides: term.sides,
+      modifier: 0
+    });
+
+    if (!validation.ok) {
+      return validation;
+    }
+
+    terms.push({
+      quantity: validation.quantity,
+      sides: validation.sides
+    });
+  }
+
+  return { ok: true, terms, modifier };
+}
+
 export function rollDice(quantity: number, sides: number): number[] {
   const validation = validateDiceRequest({ quantity, sides, modifier: 0 });
 
@@ -74,6 +138,19 @@ export function rollDice(quantity: number, sides: number): number[] {
     { length: validation.quantity },
     () => Math.floor(Math.random() * validation.sides) + 1
   );
+}
+
+export function rollDiceTerms(terms: DiceTerm[]): RollTermResult[] {
+  const validation = validateRollRequest({ terms, modifier: 0 });
+
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+
+  return validation.terms.map((term) => ({
+    ...term,
+    results: rollDice(term.quantity, term.sides)
+  }));
 }
 
 export function calculateTotal(results: number[], modifier: number): number {
@@ -94,25 +171,63 @@ export function formatRollExpression(quantity: number, sides: number, modifier =
   return base;
 }
 
-export function createRoll(input: RollInput): Roll {
-  const validation = validateDiceRequest(input);
+export function formatRollRequestExpression(request: RollRequest): string {
+  const validation = validateRollRequest(request);
 
   if (!validation.ok) {
     throw new Error(validation.error);
   }
 
-  const results = rollDice(validation.quantity, validation.sides);
+  const diceText = validation.terms.map((term) => `${term.quantity}d${term.sides}`).join(" + ");
+
+  if (validation.modifier > 0) {
+    return `${diceText} + ${validation.modifier}`;
+  }
+
+  if (validation.modifier < 0) {
+    return `${diceText} - ${Math.abs(validation.modifier)}`;
+  }
+
+  return diceText;
+}
+
+export function createRoll(input: RollInput): Roll {
+  const request =
+    input.terms && input.terms.length > 0
+      ? { terms: input.terms, modifier: input.modifier }
+      : {
+          terms: [
+            {
+              quantity: input.quantity ?? 0,
+              sides: input.sides ?? 0
+            }
+          ],
+          modifier: input.modifier
+        };
+  const validation = validateRollRequest(request);
+
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+
+  const terms = rollDiceTerms(validation.terms);
+  const results = terms.flatMap((term) => term.results);
   const total = calculateTotal(results, validation.modifier);
+  const firstTerm = validation.terms[0];
 
   return {
     id: crypto.randomUUID(),
     playerId: input.playerId,
     playerName: input.playerName,
     diceColor: input.diceColor,
-    quantity: validation.quantity,
-    sides: validation.sides,
+    quantity: validation.terms.length === 1 ? firstTerm.quantity : undefined,
+    sides: validation.terms.length === 1 ? firstTerm.sides : undefined,
     modifier: validation.modifier,
-    expression: formatRollExpression(validation.quantity, validation.sides, validation.modifier),
+    expression: formatRollRequestExpression({
+      terms: validation.terms,
+      modifier: validation.modifier
+    }),
+    terms,
     results,
     total,
     timestamp: Date.now()
