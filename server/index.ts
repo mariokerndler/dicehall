@@ -4,7 +4,7 @@ import next from "next";
 import { attachRealtimeServer } from "./realtime";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = process.env.HOSTNAME ?? "0.0.0.0";
+const hostname = process.env.HOST ?? "0.0.0.0";
 const port = Number(process.env.PORT ?? 3000);
 
 async function main() {
@@ -17,6 +17,15 @@ async function main() {
   const httpServer = createServer(app);
 
   attachRealtimeServer(httpServer);
+
+  app.get("/api/realtime-health", (_req, res) => {
+    res.json({
+      ok: true,
+      service: "dicehall-realtime",
+      socketPath: "/socket.io",
+      uptime: process.uptime()
+    });
+  });
 
   app.all("*", (req, res) => {
     return handle(req, res);

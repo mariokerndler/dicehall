@@ -13,6 +13,11 @@ Dicehall must be deployed as a server-side Node.js app because it uses a custom 
 - Output directory, if requested: `.next`
 - Entry file, if requested: `dist/server.js`
 
+## Environment Variables
+
+- `PORT`: set by Hostinger automatically.
+- `NEXT_PUBLIC_SOCKET_TRANSPORTS`: optional. Leave unset for Hostinger Web App hosting so Socket.IO uses HTTP polling. Set to `polling,websocket` only on hosts that support incoming WebSocket upgrades, such as a VPS with a correctly configured proxy.
+
 ## What the Build Produces
 
 `npm run build` does two things:
@@ -21,6 +26,20 @@ Dicehall must be deployed as a server-side Node.js app because it uses a custom 
 2. Bundles the custom Express and Socket.IO server into `dist/server.js`.
 
 Hostinger should run the bundled server with `npm run start`. The server reads Hostinger's `PORT` environment variable automatically and binds to `0.0.0.0`.
+
+## Realtime Health Check
+
+After deployment, visit `/api/realtime-health` on the live domain. A working custom server returns JSON like:
+
+```json
+{
+  "ok": true,
+  "service": "dicehall-realtime",
+  "socketPath": "/socket.io"
+}
+```
+
+If that route returns a Next.js 404 page or static HTML, Hostinger is not running `npm run start` against `dist/server.js`.
 
 ## Deployment Notes
 

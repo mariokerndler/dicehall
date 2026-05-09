@@ -12,6 +12,7 @@ import { RollLog } from "../components/RollLog";
 import type { DiceTerm, Roll, RollVisibility } from "../lib/dice";
 import type { LobbyState, Player } from "../lib/lobby";
 import { normalizeLobbyCode } from "../lib/lobby";
+import { getSocketTransports } from "../lib/socket";
 
 type PendingRoll = {
   id: string;
@@ -83,7 +84,10 @@ export default function Home() {
   const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    const socket = io();
+    const socket = io({
+      path: "/socket.io",
+      transports: getSocketTransports()
+    });
     socketRef.current = socket;
 
     socket.on("lobby:state", (state: LobbyState) => {
@@ -110,8 +114,8 @@ export default function Home() {
       }
     });
 
-    socket.on("connect_error", () => {
-      setError("Could not connect to the realtime server.");
+    socket.on("connect_error", (connectionError) => {
+      setError(`Could not connect to the realtime server. ${connectionError.message}`);
     });
 
     return () => {
