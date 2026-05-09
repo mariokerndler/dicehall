@@ -2,10 +2,15 @@
   "name": "dicehall",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=20 <25",
+    "npm": ">=10"
+  },
   "scripts": {
     "dev": "tsx server/index.ts",
-    "build": "next build",
-    "start": "cross-env NODE_ENV=production tsx server/index.ts",
+    "build": "next build && npm run build:server",
+    "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/server.js --external:next --external:express --external:socket.io",
+    "start": "cross-env NODE_ENV=production node dist/server.js",
     "lint": "next lint",
     "test": "vitest run"
   },
@@ -27,6 +32,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "autoprefixer": "^10.4.19",
+    "esbuild": "^0.28.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^15.3.4",
     "postcss": "^8.4.39",

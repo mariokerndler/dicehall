@@ -33,6 +33,10 @@ npm run build   # Build the Next.js app
 npm run start   # Start the production custom server after build
 ```
 
+## Deployment
+
+For Hostinger Node.js Web App hosting, use the settings in [HOSTINGER_DEPLOYMENT.md](./HOSTINGER_DEPLOYMENT.md). Dicehall must run as a server-side Node.js app because the custom server powers Socket.IO.
+
 ## Notes
 
 Lobby state is stored in memory and disappears when the server restarts. Authentication is intentionally out of scope for the MVP; browser session storage keeps the local player identity during a session.
