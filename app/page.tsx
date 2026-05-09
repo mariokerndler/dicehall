@@ -26,6 +26,7 @@ type Ack<T> = { ok: true; data: T } | { ok: false; error: string };
 
 type Session = {
   playerId: string;
+  sessionToken: string;
   username: string;
   diceColor: string;
   lobbyCode: string;
@@ -38,6 +39,7 @@ function getInitialSession(): Session {
   if (typeof window === "undefined") {
     return {
       playerId: "",
+      sessionToken: "",
       username: "",
       diceColor: DEFAULT_COLOR,
       lobbyCode: ""
@@ -50,7 +52,8 @@ function getInitialSession(): Session {
     try {
       const parsed = JSON.parse(stored) as Partial<Session>;
       return {
-        playerId: parsed.playerId || crypto.randomUUID(),
+        playerId: parsed.playerId || "",
+        sessionToken: parsed.sessionToken || "",
         username: parsed.username || "",
         diceColor: parsed.diceColor || DEFAULT_COLOR,
         lobbyCode: parsed.lobbyCode || ""
@@ -61,7 +64,8 @@ function getInitialSession(): Session {
   }
 
   return {
-    playerId: crypto.randomUUID(),
+    playerId: "",
+    sessionToken: "",
     username: "",
     diceColor: DEFAULT_COLOR,
     lobbyCode: ""
@@ -82,6 +86,11 @@ export default function Home() {
   const [error, setError] = useState("");
   const [isBusy, setIsBusy] = useState(false);
   const socketRef = useRef<Socket | null>(null);
+  const sessionRef = useRef(session);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
 
   useEffect(() => {
     const socket = io({
@@ -103,7 +112,7 @@ export default function Home() {
     });
 
     socket.on("player:removed", ({ playerId }: { playerId: string }) => {
-      if (playerId === session.playerId) {
+      if (playerId === sessionRef.current.playerId) {
         setError("You were removed from the lobby by the DM.");
         setLobby(null);
         setSession((current) => {
@@ -121,7 +130,7 @@ export default function Home() {
     return () => {
       socket.disconnect();
     };
-  }, [session.playerId]);
+  }, []);
 
   const currentPlayer = useMemo(
     () => lobby?.players.find((player) => player.id === session.playerId),
@@ -164,20 +173,20 @@ export default function Home() {
     socketRef.current?.emit(
       "lobby:create",
       {
-        playerId: session.playerId,
         username
       },
-      (response: Ack<LobbyState>) => {
+      (response: Ack<{ state: LobbyState; player: Player; sessionToken: string }>) => {
         setIsBusy(false);
-        const state = handleAck(response);
+        const data = handleAck(response);
 
-        if (state) {
-          const player = state.players.find((candidate) => candidate.id === session.playerId);
-          setLobby(state);
+        if (data) {
+          setLobby(data.state);
           updateSession({
+            playerId: data.player.id,
+            sessionToken: data.sessionToken,
             username,
-            lobbyCode: state.code,
-            diceColor: player?.diceColor ?? session.diceColor
+            lobbyCode: data.state.code,
+            diceColor: data.player.diceColor
           });
         }
       }
@@ -198,16 +207,19 @@ export default function Home() {
       "lobby:join",
       {
         code,
+        username,
         playerId: session.playerId,
-        username
+        sessionToken: session.sessionToken
       },
-      (response: Ack<{ state: LobbyState; player: Player }>) => {
+      (response: Ack<{ state: LobbyState; player: Player; sessionToken: string }>) => {
         setIsBusy(false);
         const data = handleAck(response);
 
         if (data) {
           setLobby(data.state);
           updateSession({
+            playerId: data.player.id,
+            sessionToken: data.sessionToken,
             username: data.player.username,
             lobbyCode: data.state.code,
             diceColor: data.player.diceColor
@@ -231,7 +243,6 @@ export default function Home() {
       "roll:start",
       {
         code: lobby.code,
-        playerId: session.playerId,
         ...request
       },
       (response: Ack<{ rollId: string }>) => {
@@ -248,8 +259,7 @@ export default function Home() {
     socketRef.current?.emit(
       "host:clearLog",
       {
-        code: lobby.code,
-        playerId: session.playerId
+        code: lobby.code
       },
       (response: Ack<LobbyState>) => {
         handleAck(response);
@@ -266,7 +276,6 @@ export default function Home() {
       "host:removePlayer",
       {
         code: lobby.code,
-        hostId: session.playerId,
         playerId
       },
       (response: Ack<LobbyState>) => {

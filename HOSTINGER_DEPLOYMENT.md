@@ -20,6 +20,7 @@ If the panel does not show an entry file setting either, the app was likely crea
 ## Environment Variables
 
 - `PORT`: set by Hostinger automatically.
+- `DICEHALL_ALLOWED_ORIGINS`: set this to the deployed origin, for example `https://your-domain.com`. Use a comma-separated list if you deploy the same app behind multiple domains.
 - `NEXT_PUBLIC_SOCKET_TRANSPORTS`: optional. Leave unset for Hostinger Web App hosting so Socket.IO uses HTTP polling. Set to `polling,websocket` only on hosts that support incoming WebSocket upgrades, such as a VPS with a correctly configured proxy.
 
 ## What the Build Produces

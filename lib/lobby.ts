@@ -9,10 +9,15 @@ export type Player = {
   joinedAt: number;
 };
 
+export type LobbyPlayer = Player & {
+  sessionTokenHash: string;
+  disconnectedAt?: number;
+};
+
 export type Lobby = {
   code: string;
   hostId: string;
-  players: Player[];
+  players: LobbyPlayer[];
   rolls: Roll[];
   privateRolls: Roll[];
   createdAt: number;
@@ -106,7 +111,7 @@ export function assignAvailablePlayerColor(players: Player[]): string {
 
 export function createLobby(
   code: string,
-  host: Omit<Player, "diceColor" | "isHost" | "connected" | "joinedAt">
+  host: Omit<LobbyPlayer, "diceColor" | "isHost" | "connected" | "joinedAt">
 ): Lobby {
   const now = Date.now();
 
@@ -131,19 +136,21 @@ export function createLobby(
 
 export function addOrReconnectPlayer(
   lobby: Lobby,
-  player: Omit<Player, "diceColor" | "isHost" | "connected" | "joinedAt">
-): Player {
+  player: Omit<LobbyPlayer, "diceColor" | "isHost" | "connected" | "joinedAt">
+): LobbyPlayer {
   const existing = lobby.players.find((candidate) => candidate.id === player.id);
   const username = withDuplicateUsernameSuffix(lobby.players, player.username, player.id);
 
   if (existing) {
     existing.username = username;
+    existing.sessionTokenHash = player.sessionTokenHash;
     existing.connected = true;
+    existing.disconnectedAt = undefined;
     lobby.updatedAt = Date.now();
     return existing;
   }
 
-  const newPlayer: Player = {
+  const newPlayer: LobbyPlayer = {
     ...player,
     username,
     diceColor: assignAvailablePlayerColor(lobby.players),
@@ -162,11 +169,12 @@ export function markPlayerDisconnected(lobby: Lobby, playerId: string): void {
 
   if (player) {
     player.connected = false;
+    player.disconnectedAt = Date.now();
     lobby.updatedAt = Date.now();
   }
 }
 
-export function removePlayer(lobby: Lobby, playerId: string): Player | undefined {
+export function removePlayer(lobby: Lobby, playerId: string): LobbyPlayer | undefined {
   if (playerId === lobby.hostId) {
     return undefined;
   }
@@ -193,13 +201,18 @@ export function clearRolls(lobby: Lobby): void {
   lobby.updatedAt = Date.now();
 }
 
+function toPublicPlayer(player: LobbyPlayer): Player {
+  const { sessionTokenHash: _sessionTokenHash, disconnectedAt: _disconnectedAt, ...publicPlayer } = player;
+  return publicPlayer;
+}
+
 export function toLobbyState(lobby: Lobby, viewerId?: string): LobbyState {
   const canSeePrivateRoll = (roll: Roll) => viewerId === lobby.hostId || viewerId === roll.playerId;
 
   return {
     code: lobby.code,
     hostId: lobby.hostId,
-    players: lobby.players,
+    players: lobby.players.map(toPublicPlayer),
     rolls: lobby.rolls,
     privateRolls: viewerId ? lobby.privateRolls.filter(canSeePrivateRoll) : undefined
   };

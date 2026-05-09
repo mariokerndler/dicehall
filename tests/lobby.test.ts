@@ -8,16 +8,20 @@ import {
   toLobbyState
 } from "../lib/lobby";
 
+const TEST_TOKEN_HASH = "test-token-hash";
+
 describe("lobby player colors", () => {
   it("assigns the first unused player color", () => {
     const lobby = createLobby("ABC123", {
       id: "dm",
-      username: "DM"
+      username: "DM",
+      sessionTokenHash: TEST_TOKEN_HASH
     });
 
     const player = addOrReconnectPlayer(lobby, {
       id: "alice",
-      username: "Alice"
+      username: "Alice",
+      sessionTokenHash: TEST_TOKEN_HASH
     });
 
     expect(lobby.players[0].diceColor).toBe(PLAYER_COLORS[0]);
@@ -27,16 +31,19 @@ describe("lobby player colors", () => {
   it("preserves a reconnecting player's assigned color", () => {
     const lobby = createLobby("ABC123", {
       id: "dm",
-      username: "DM"
+      username: "DM",
+      sessionTokenHash: TEST_TOKEN_HASH
     });
     const firstJoin = addOrReconnectPlayer(lobby, {
       id: "alice",
-      username: "Alice"
+      username: "Alice",
+      sessionTokenHash: TEST_TOKEN_HASH
     });
 
     const reconnect = addOrReconnectPlayer(lobby, {
       id: "alice",
-      username: "Alice Again"
+      username: "Alice Again",
+      sessionTokenHash: "rotated-token-hash"
     });
 
     expect(reconnect.diceColor).toBe(firstJoin.diceColor);
@@ -45,11 +52,13 @@ describe("lobby player colors", () => {
   it("reuses a removed player's color for a later player", () => {
     const lobby = createLobby("ABC123", {
       id: "dm",
-      username: "DM"
+      username: "DM",
+      sessionTokenHash: TEST_TOKEN_HASH
     });
     const alice = addOrReconnectPlayer(lobby, {
       id: "alice",
-      username: "Alice"
+      username: "Alice",
+      sessionTokenHash: TEST_TOKEN_HASH
     });
 
     lobby.players = lobby.players.filter((player) => player.id !== "alice");
@@ -60,15 +69,18 @@ describe("lobby player colors", () => {
   it("filters private rolls to the DM and the rolling player", () => {
     const lobby = createLobby("ABC123", {
       id: "dm",
-      username: "DM"
+      username: "DM",
+      sessionTokenHash: TEST_TOKEN_HASH
     });
     addOrReconnectPlayer(lobby, {
       id: "alice",
-      username: "Alice"
+      username: "Alice",
+      sessionTokenHash: TEST_TOKEN_HASH
     });
     addOrReconnectPlayer(lobby, {
       id: "bob",
-      username: "Bob"
+      username: "Bob",
+      sessionTokenHash: TEST_TOKEN_HASH
     });
 
     addPrivateRoll(lobby, {

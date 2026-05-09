@@ -1,5 +1,6 @@
 import { createServer } from "node:http";
 import express from "express";
+import helmet from "helmet";
 import next from "next";
 import { attachRealtimeServer } from "./realtime";
 
@@ -15,6 +16,13 @@ async function main() {
 
   const app = express();
   const httpServer = createServer(app);
+
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false
+    })
+  );
 
   attachRealtimeServer(httpServer);
 
