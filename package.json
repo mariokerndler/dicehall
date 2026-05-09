@@ -2,6 +2,7 @@
   "name": "dicehall",
   "version": "0.1.0",
   "private": true,
+  "main": "server.js",
   "engines": {
     "node": ">=20 <25",
     "npm": ">=10"
@@ -10,7 +11,7 @@
     "dev": "tsx server/index.ts",
     "build": "next build && npm run build:server",
     "build:server": "esbuild server/index.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/server.js --external:next --external:express --external:socket.io",
-    "start": "cross-env NODE_ENV=production node dist/server.js",
+    "start": "node server.js",
     "lint": "next lint",
     "test": "vitest run"
   },

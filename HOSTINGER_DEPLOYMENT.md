@@ -11,7 +11,11 @@ Dicehall must be deployed as a server-side Node.js app because it uses a custom 
 - Build command: `npm run build`
 - Start command: `npm run start`
 - Output directory, if requested: `.next`
-- Entry file, if requested: `dist/server.js`
+- Entry file, if requested: `server.js`
+
+If Hostinger only shows a build command field, leave it as `npm run build`. Do not put `node server.js` in the build command, because build commands must exit. Hostinger should start the app from the `start` script in `package.json` or from the `server.js` entry file setting.
+
+If the panel does not show an entry file setting either, the app was likely created as a static/front-end app instead of a Node.js app. Recreate the site through Hostinger's Node.js Apps/Web App hosting flow and select `Other` or `Express` if the Next.js preset serves only static output.
 
 ## Environment Variables
 
@@ -25,7 +29,7 @@ Dicehall must be deployed as a server-side Node.js app because it uses a custom 
 1. Builds the Next.js app into `.next`.
 2. Bundles the custom Express and Socket.IO server into `dist/server.js`.
 
-Hostinger should run the bundled server with `npm run start`. The server reads Hostinger's `PORT` environment variable automatically and binds to `0.0.0.0`.
+Hostinger should run the root `server.js` launcher through `npm run start`. The launcher loads the bundled custom server from `dist/server.js`. The server reads Hostinger's `PORT` environment variable automatically and binds to `0.0.0.0`.
 
 ## Realtime Health Check
 
@@ -39,7 +43,7 @@ After deployment, visit `/api/realtime-health` on the live domain. A working cus
 }
 ```
 
-If that route returns a Next.js 404 page or static HTML, Hostinger is not running `npm run start` against `dist/server.js`.
+If that route returns a Next.js 404 page or static HTML, Hostinger is not running `npm run start` against `server.js`.
 
 ## Deployment Notes
 
