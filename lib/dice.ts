@@ -2,6 +2,8 @@ export const SUPPORTED_DICE = [4, 6, 8, 10, 12, 20, 100] as const;
 
 export type DiceSides = (typeof SUPPORTED_DICE)[number];
 
+export type DiceInputMode = "preset" | "custom";
+
 export type DiceRequest = {
   quantity: number;
   sides: number;
@@ -73,6 +75,10 @@ const MAX_MODIFIER = 99;
 
 export function isSupportedDie(sides: number): sides is DiceSides {
   return SUPPORTED_DICE.includes(sides as DiceSides);
+}
+
+export function getDiceSelectValue(mode: DiceInputMode, sides: number): string {
+  return mode === "custom" ? "custom" : String(sides);
 }
 
 export function validateDiceRequest(request: DiceRequest): ValidationResult {

@@ -4,8 +4,9 @@ import { Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   formatRollRequestExpression,
-  isSupportedDie,
+  getDiceSelectValue,
   SUPPORTED_DICE,
+  type DiceInputMode,
   type DiceTerm,
   type RollVisibility
 } from "../lib/dice";
@@ -17,11 +18,13 @@ type DiceRollerProps = {
 };
 
 type DraftTerm = DiceTerm & {
+  dieMode: DiceInputMode;
   id: string;
 };
 
-function createDraftTerm(sides = 20): DraftTerm {
+function createDraftTerm(sides = 20, dieMode: DiceInputMode = "preset"): DraftTerm {
   return {
+    dieMode,
     id: crypto.randomUUID(),
     quantity: 1,
     sides
@@ -41,7 +44,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
     }
   }, [modifier, terms]);
 
-  function updateTerm(id: string, patch: Partial<DiceTerm>) {
+  function updateTerm(id: string, patch: Partial<Omit<DraftTerm, "id">>) {
     setTerms((current) =>
       current.map((term) => (term.id === id ? { ...term, ...patch } : term))
     );
@@ -51,8 +54,8 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
     setTerms((current) => (current.length === 1 ? current : current.filter((term) => term.id !== id)));
   }
 
-  function addTerm(sides: number) {
-    setTerms((current) => [...current, createDraftTerm(sides)]);
+  function addTerm(sides: number, dieMode: DiceInputMode = "preset") {
+    setTerms((current) => [...current, createDraftTerm(sides, dieMode)]);
   }
 
   return (
@@ -99,10 +102,15 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
               <label className="block">
                 <span className="text-xs font-semibold text-stone-400">Die</span>
                 <select
-                  value={isSupportedDie(term.sides) ? String(term.sides) : "custom"}
+                  value={getDiceSelectValue(term.dieMode, term.sides)}
                   onChange={(event) => {
                     const value = event.target.value;
-                    updateTerm(term.id, { sides: value === "custom" ? 3 : Number(value) });
+                    updateTerm(
+                      term.id,
+                      value === "custom"
+                        ? { dieMode: "custom", sides: term.sides || 3 }
+                        : { dieMode: "preset", sides: Number(value) }
+                    );
                   }}
                   className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none focus:border-brass focus:ring-2 focus:ring-brass/30"
                 >
@@ -115,7 +123,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
                 </select>
               </label>
 
-              {!isSupportedDie(term.sides) ? (
+              {term.dieMode === "custom" ? (
                 <label className="block">
                   <span className="text-xs font-semibold text-stone-400">Sides</span>
                   <input
@@ -156,7 +164,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
           ))}
           <button
             type="button"
-            onClick={() => addTerm(3)}
+            onClick={() => addTerm(3, "custom")}
             className="inline-flex h-9 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-stone-200 transition hover:border-brass/60 hover:text-brass focus:outline-none focus:ring-2 focus:ring-brass"
           >
             <Plus size={13} />

@@ -4,6 +4,7 @@ import {
   createRoll,
   formatRollExpression,
   formatRollRequestExpression,
+  getDiceSelectValue,
   rollDice,
   rollDiceTerms,
   validateRollRequest,
@@ -78,6 +79,12 @@ describe("dice logic", () => {
     const results = rollDice(6, 3);
     expect(results).toHaveLength(6);
     expect(results.every((result) => result >= 1 && result <= 3)).toBe(true);
+  });
+
+  it("keeps custom dice in custom mode even when side counts match presets", () => {
+    expect(getDiceSelectValue("custom", 10)).toBe("custom");
+    expect(getDiceSelectValue("custom", 12)).toBe("custom");
+    expect(getDiceSelectValue("preset", 12)).toBe("12");
   });
 
   it("creates a mixed dice roll with grouped individual results", () => {
