@@ -22,6 +22,7 @@ export type Lobby = {
   privateRolls: Roll[];
   createdAt: number;
   updatedAt: number;
+  expiresAt: number;
 };
 
 export type LobbyState = {
@@ -30,11 +31,13 @@ export type LobbyState = {
   players: Player[];
   rolls: Roll[];
   privateRolls?: Roll[];
+  expiresAt: number;
 };
 
 const CODE_PATTERN = /^[A-Z0-9]{6}$/;
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_LOG_LENGTH = 100;
+export const LOBBY_SESSION_DURATION_MS = 60 * 60 * 1000;
 
 export const PLAYER_COLORS = [
   "#d79b4a",
@@ -130,8 +133,14 @@ export function createLobby(
     rolls: [],
     privateRolls: [],
     createdAt: now,
-    updatedAt: now
+    updatedAt: now,
+    expiresAt: now + LOBBY_SESSION_DURATION_MS
   };
+}
+
+export function extendLobbySession(lobby: Lobby, now = Date.now()): void {
+  lobby.expiresAt = now + LOBBY_SESSION_DURATION_MS;
+  lobby.updatedAt = now;
 }
 
 export function addOrReconnectPlayer(
@@ -214,6 +223,7 @@ export function toLobbyState(lobby: Lobby, viewerId?: string): LobbyState {
     hostId: lobby.hostId,
     players: lobby.players.map(toPublicPlayer),
     rolls: lobby.rolls,
-    privateRolls: viewerId ? lobby.privateRolls.filter(canSeePrivateRoll) : undefined
+    privateRolls: viewerId ? lobby.privateRolls.filter(canSeePrivateRoll) : undefined,
+    expiresAt: lobby.expiresAt
   };
 }

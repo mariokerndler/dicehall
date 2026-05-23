@@ -1,11 +1,11 @@
 "use client";
 
 import { clsx } from "clsx";
-import { SUPPORTED_DICE, type DiceSides } from "../lib/dice";
+import { SUPPORTED_DICE } from "../lib/dice";
 
 type DiceSelectorProps = {
-  selected: DiceSides;
-  onSelect: (sides: DiceSides) => void;
+  selected: number;
+  onSelect: (sides: number) => void;
 };
 
 export function DiceSelector({ selected, onSelect }: DiceSelectorProps) {

@@ -15,7 +15,7 @@ export type DiceTerm = {
 
 export type ValidDiceTerm = {
   quantity: number;
-  sides: DiceSides;
+  sides: number;
 };
 
 export type RollRequest = {
@@ -35,7 +35,7 @@ export type Roll = {
   playerName: string;
   diceColor: string;
   quantity?: number;
-  sides?: DiceSides;
+  sides?: number;
   modifier: number;
   expression: string;
   terms: RollTermResult[];
@@ -57,7 +57,7 @@ export type RollInput = {
 };
 
 export type ValidationResult =
-  | { ok: true; quantity: number; sides: DiceSides; modifier: number }
+  | { ok: true; quantity: number; sides: number; modifier: number }
   | { ok: false; error: string };
 
 export type RollValidationResult =
@@ -66,6 +66,8 @@ export type RollValidationResult =
 
 const MAX_QUANTITY = 20;
 const MAX_TERMS = 8;
+const MIN_SIDES = 2;
+const MAX_SIDES = 1000;
 const MIN_MODIFIER = -99;
 const MAX_MODIFIER = 99;
 
@@ -82,8 +84,8 @@ export function validateDiceRequest(request: DiceRequest): ValidationResult {
     return { ok: false, error: `Choose between 1 and ${MAX_QUANTITY} dice.` };
   }
 
-  if (!Number.isInteger(sides) || !isSupportedDie(sides)) {
-    return { ok: false, error: "Choose a supported die type." };
+  if (!Number.isInteger(sides) || sides < MIN_SIDES || sides > MAX_SIDES) {
+    return { ok: false, error: `Die sides must be between ${MIN_SIDES} and ${MAX_SIDES}.` };
   }
 
   if (!Number.isInteger(modifier) || modifier < MIN_MODIFIER || modifier > MAX_MODIFIER) {

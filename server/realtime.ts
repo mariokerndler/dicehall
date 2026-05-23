@@ -9,8 +9,10 @@ import {
   cleanUsername,
   clearRolls,
   createLobby,
+  extendLobbySession,
   generateLobbyCode,
   isValidLobbyCode,
+  LOBBY_SESSION_DURATION_MS,
   markPlayerDisconnected,
   normalizeLobbyCode,
   removePlayer,
@@ -55,7 +57,7 @@ type SocketLobbyPlayerResult =
 export const SECURITY_LIMITS = {
   maxActiveLobbies: 500,
   maxPlayersPerLobby: 12,
-  lobbyIdleTtlMs: 6 * 60 * 60 * 1000,
+  lobbySessionDurationMs: LOBBY_SESSION_DURATION_MS,
   disconnectedPlayerTtlMs: 30 * 60 * 1000,
   pruneIntervalMs: 5 * 60 * 1000,
   createLobbyRate: { limit: 5, windowMs: 60 * 1000 },
@@ -66,6 +68,7 @@ export const SECURITY_LIMITS = {
 
 const lobbies = new Map<string, Lobby>();
 const rateLimiter = new FixedWindowRateLimiter();
+let realtimeServer: Server | undefined;
 
 const pruneInterval = setInterval(() => {
   pruneExpiredLobbies();
@@ -179,7 +182,8 @@ function getSocketLobbyPlayer(socket: Socket, code: string): SocketLobbyPlayerRe
 
 export function pruneExpiredLobbies(now = Date.now()): void {
   for (const [code, lobby] of lobbies) {
-    if (now - lobby.updatedAt > SECURITY_LIMITS.lobbyIdleTtlMs) {
+    if (now > lobby.expiresAt) {
+      realtimeServer?.to(code).emit("lobby:closed", { reason: "expired" });
       lobbies.delete(code);
       continue;
     }
@@ -214,6 +218,10 @@ export function __getRealtimeLobbyCountForTests(): number {
   return lobbies.size;
 }
 
+export function __getRealtimeLobbyForTests(code: string): Lobby | undefined {
+  return lobbies.get(normalizeLobbyCode(code));
+}
+
 export function __getRealtimeLobbyStateForTests(code: string, viewerId?: string): ReturnType<typeof toLobbyState> | undefined {
   const lobby = lobbies.get(normalizeLobbyCode(code));
   return lobby ? toLobbyState(lobby, viewerId) : undefined;
@@ -239,6 +247,7 @@ export function attachRealtimeServer(httpServer: HttpServer) {
       callback(null, allowed);
     }
   });
+  realtimeServer = io;
 
   io.on("connection", (socket) => {
     socket.on("lobby:create", (payload: CreateLobbyPayload, ack?: Ack<PlayerSessionResponse>) => {
@@ -364,6 +373,7 @@ export function attachRealtimeServer(httpServer: HttpServer) {
           ? [playerRoom(current.lobby.code, current.lobby.hostId)]
           : [playerRoom(current.lobby.code, current.lobby.hostId), playerRoom(current.lobby.code, roll.playerId)];
       const targetRooms = roll.visibility === "dm" ? privateTargetRooms : [current.lobby.code];
+      extendLobbySession(current.lobby);
 
       let target = io.to(targetRooms[0]);
       for (const room of targetRooms.slice(1)) {
@@ -423,6 +433,30 @@ export function attachRealtimeServer(httpServer: HttpServer) {
       }
 
       clearRolls(current.lobby);
+      ack?.({ ok: true, data: toLobbyState(current.lobby, current.player.id) });
+      emitLobbyState(io, current.lobby);
+    });
+
+    socket.on("host:renewSession", (payload: { code: string }, ack?: Ack<ReturnType<typeof toLobbyState>>) => {
+      if (!isAllowed(socket, "host:renewSession", SECURITY_LIMITS.hostActionRate, ack)) {
+        return;
+      }
+
+      const current = getSocketLobbyPlayer(socket, readString(payload?.code));
+
+      if (!current.ok) {
+        ack?.({ ok: false, error: current.error });
+        return;
+      }
+
+      const hostError = requireHost(current.lobby, current.player.id);
+
+      if (hostError) {
+        ack?.({ ok: false, error: hostError });
+        return;
+      }
+
+      extendLobbySession(current.lobby);
       ack?.({ ok: true, data: toLobbyState(current.lobby, current.player.id) });
       emitLobbyState(io, current.lobby);
     });

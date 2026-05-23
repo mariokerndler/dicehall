@@ -6,6 +6,7 @@ import {
   attachRealtimeServer,
   pruneExpiredLobbies,
   SECURITY_LIMITS,
+  __getRealtimeLobbyForTests,
   __getRealtimeLobbyCountForTests,
   __getRealtimeLobbyStateForTests,
   __resetRealtimeStateForTests,
@@ -300,7 +301,7 @@ describe("realtime security", () => {
       username: "Idle DM",
       sessionTokenHash: "hash"
     });
-    idleLobby.updatedAt = now - SECURITY_LIMITS.lobbyIdleTtlMs - 1;
+    idleLobby.expiresAt = now - 1;
     __setRealtimeLobbyForTests(idleLobby);
 
     const activeLobby = createLobby("LIVE01", {
@@ -322,6 +323,142 @@ describe("realtime security", () => {
 
     expect(__getRealtimeLobbyStateForTests("IDLE01")).toBeUndefined();
     expect(__getRealtimeLobbyStateForTests("LIVE01")?.players).toHaveLength(1);
+  });
+
+  it("creates lobbies with a 60 minute session expiry", async () => {
+    const dm = await connectClient(server.url);
+    const beforeCreate = Date.now();
+    const response = await emitAck<{
+      state: { expiresAt: number };
+    }>(dm, "lobby:create", { username: "DM" });
+    const afterCreate = Date.now();
+
+    expect(response.ok).toBe(true);
+    if (!response.ok) {
+      return;
+    }
+
+    expect(response.data.state.expiresAt).toBeGreaterThanOrEqual(beforeCreate + SECURITY_LIMITS.lobbySessionDurationMs);
+    expect(response.data.state.expiresAt).toBeLessThanOrEqual(afterCreate + SECURITY_LIMITS.lobbySessionDurationMs);
+  });
+
+  it("does not extend the lobby session when players join", async () => {
+    const dm = await connectClient(server.url);
+    const create = await emitAck<{
+      state: { code: string; expiresAt: number };
+    }>(dm, "lobby:create", { username: "DM" });
+    expect(create.ok).toBe(true);
+    if (!create.ok) {
+      return;
+    }
+
+    const player = await connectClient(server.url);
+    const join = await emitAck<{
+      state: { expiresAt: number };
+    }>(player, "lobby:join", {
+      code: create.data.state.code,
+      username: "Alice"
+    });
+
+    expect(join.ok).toBe(true);
+    if (!join.ok) {
+      return;
+    }
+    expect(join.data.state.expiresAt).toBe(create.data.state.expiresAt);
+  });
+
+  it("extends the lobby session when a player rolls dice", async () => {
+    const dm = await connectClient(server.url);
+    const create = await emitAck<{
+      state: { code: string; expiresAt: number };
+    }>(dm, "lobby:create", { username: "DM" });
+    expect(create.ok).toBe(true);
+    if (!create.ok) {
+      return;
+    }
+
+    const state = __getRealtimeLobbyStateForTests(create.data.state.code);
+    expect(state).toBeDefined();
+    const nearExpiry = Date.now() + 5 * 60 * 1000;
+    const lobby = __getRealtimeLobbyForTests(create.data.state.code);
+    expect(lobby).toBeDefined();
+    if (!lobby) {
+      return;
+    }
+    lobby.expiresAt = nearExpiry;
+
+    const roll = await emitAck(dm, "roll:start", {
+      code: create.data.state.code,
+      terms: [{ quantity: 1, sides: 20 }],
+      modifier: 0
+    });
+
+    expect(roll.ok).toBe(true);
+    expect(__getRealtimeLobbyStateForTests(create.data.state.code)?.expiresAt).toBeGreaterThan(nearExpiry);
+  });
+
+  it("allows only the host to renew the lobby session", async () => {
+    const dm = await connectClient(server.url);
+    const create = await emitAck<{
+      state: { code: string; expiresAt: number };
+    }>(dm, "lobby:create", { username: "DM" });
+    expect(create.ok).toBe(true);
+    if (!create.ok) {
+      return;
+    }
+
+    const player = await connectClient(server.url);
+    const join = await emitAck(player, "lobby:join", {
+      code: create.data.state.code,
+      username: "Alice"
+    });
+    expect(join.ok).toBe(true);
+
+    const lobby = __getRealtimeLobbyForTests(create.data.state.code);
+    expect(lobby).toBeDefined();
+    if (!lobby) {
+      return;
+    }
+    const nearExpiry = Date.now() + 5 * 60 * 1000;
+    lobby.expiresAt = nearExpiry;
+
+    const denied = await emitAck(player, "host:renewSession", {
+      code: create.data.state.code
+    });
+    expect(denied.ok).toBe(false);
+
+    const renewed = await emitAck<{ expiresAt: number }>(dm, "host:renewSession", {
+      code: create.data.state.code
+    });
+    expect(renewed.ok).toBe(true);
+    if (!renewed.ok) {
+      return;
+    }
+    expect(renewed.data.expiresAt).toBeGreaterThan(nearExpiry);
+  });
+
+  it("notifies connected players when an expired lobby closes", async () => {
+    const dm = await connectClient(server.url);
+    const create = await emitAck<{
+      state: { code: string };
+    }>(dm, "lobby:create", { username: "DM" });
+    expect(create.ok).toBe(true);
+    if (!create.ok) {
+      return;
+    }
+
+    const closed = onceSocketEvent<{ reason: string }>(dm, "lobby:closed");
+    const lobby = __getRealtimeLobbyForTests(create.data.state.code);
+    expect(lobby).toBeDefined();
+    if (!lobby) {
+      return;
+    }
+    lobby.expiresAt = Date.now() - 1;
+
+    pruneExpiredLobbies(Date.now());
+
+    await expect(closed).resolves.toEqual({ reason: "expired" });
+    expect(__getRealtimeLobbyStateForTests(create.data.state.code)).toBeUndefined();
   });
 
   it("rejects lobby creation when the active lobby limit is reached", async () => {

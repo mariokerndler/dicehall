@@ -67,6 +67,19 @@ describe("dice logic", () => {
     expect(termResults[1].results[0]).toBeLessThanOrEqual(8);
   });
 
+  it("accepts custom dice with integer side counts", () => {
+    const validation = validateDiceRequest({ quantity: 2, sides: 3, modifier: 0 });
+
+    expect(validation.ok).toBe(true);
+    expect(formatRollRequestExpression({ terms: [{ quantity: 2, sides: 3 }], modifier: 0 })).toBe(
+      "2d3"
+    );
+
+    const results = rollDice(6, 3);
+    expect(results).toHaveLength(6);
+    expect(results.every((result) => result >= 1 && result <= 3)).toBe(true);
+  });
+
   it("creates a mixed dice roll with grouped individual results", () => {
     const roll = createRoll({
       playerId: "p1",
@@ -99,7 +112,9 @@ describe("dice logic", () => {
   });
 
   it("rejects unsupported dice, empty quantities, and unsafe modifiers", () => {
-    expect(validateDiceRequest({ quantity: 1, sides: 13, modifier: 0 }).ok).toBe(false);
+    expect(validateDiceRequest({ quantity: 1, sides: 1, modifier: 0 }).ok).toBe(false);
+    expect(validateDiceRequest({ quantity: 1, sides: 1001, modifier: 0 }).ok).toBe(false);
+    expect(validateDiceRequest({ quantity: 1, sides: 4.5, modifier: 0 }).ok).toBe(false);
     expect(validateDiceRequest({ quantity: 0, sides: 20, modifier: 0 }).ok).toBe(false);
     expect(validateDiceRequest({ quantity: 1, sides: 20, modifier: 1000 }).ok).toBe(false);
     expect(validateRollRequest({ terms: [], modifier: 0 }).ok).toBe(false);

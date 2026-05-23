@@ -34,6 +34,7 @@ type Session = {
 
 const SESSION_KEY = "dicehall-session";
 const DEFAULT_COLOR = "#d79b4a";
+const SESSION_RENEWAL_WARNING_MS = 10 * 60 * 1000;
 
 function getInitialSession(): Session {
   if (typeof window === "undefined") {
@@ -76,6 +77,22 @@ function saveSession(session: Session) {
   window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
 }
 
+function formatTimeLeft(milliseconds: number): string {
+  const totalMinutes = Math.max(0, Math.ceil(milliseconds / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours > 0 && minutes > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+
+  if (hours > 0) {
+    return `${hours}h`;
+  }
+
+  return `${minutes}m`;
+}
+
 export default function Home() {
   const [session, setSession] = useState<Session>(() => getInitialSession());
   const [hostName, setHostName] = useState("");
@@ -85,6 +102,7 @@ export default function Home() {
   const [pendingRolls, setPendingRolls] = useState<PendingRoll[]>([]);
   const [error, setError] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
   const socketRef = useRef<Socket | null>(null);
   const sessionRef = useRef(session);
 
@@ -115,12 +133,24 @@ export default function Home() {
       if (playerId === sessionRef.current.playerId) {
         setError("You were removed from the lobby by the DM.");
         setLobby(null);
+        setPendingRolls([]);
         setSession((current) => {
           const next = { ...current, lobbyCode: "" };
           saveSession(next);
           return next;
         });
       }
+    });
+
+    socket.on("lobby:closed", ({ reason }: { reason: string }) => {
+      setError(reason === "expired" ? "The lobby session expired." : "The lobby was closed.");
+      setLobby(null);
+      setPendingRolls([]);
+      setSession((current) => {
+        const next = { ...current, lobbyCode: "" };
+        saveSession(next);
+        return next;
+      });
     });
 
     socket.on("connect_error", (connectionError) => {
@@ -132,11 +162,20 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const currentPlayer = useMemo(
     () => lobby?.players.find((player) => player.id === session.playerId),
     [lobby?.players, session.playerId]
   );
   const isHost = Boolean(lobby && lobby.hostId === session.playerId);
+  const sessionTimeLeft = lobby ? lobby.expiresAt - now : 0;
+  const sessionTimeLeftLabel = formatTimeLeft(sessionTimeLeft);
+  const renewalTimeLeftLabel =
+    isHost && sessionTimeLeft <= SESSION_RENEWAL_WARNING_MS ? formatTimeLeft(sessionTimeLeft) : null;
 
   function updateSession(patch: Partial<Session>) {
     setSession((current) => {
@@ -284,6 +323,26 @@ export default function Home() {
     );
   }
 
+  function renewSession() {
+    if (!lobby) {
+      return;
+    }
+
+    socketRef.current?.emit(
+      "host:renewSession",
+      {
+        code: lobby.code
+      },
+      (response: Ack<LobbyState>) => {
+        const data = handleAck(response);
+
+        if (data) {
+          setLobby(data);
+        }
+      }
+    );
+  }
+
   function leaveLobby() {
     setLobby(null);
     setPendingRolls([]);
@@ -326,7 +385,13 @@ export default function Home() {
                 isHost={isHost}
                 onRemovePlayer={removePlayer}
               />
-              <HostControls canUse={isHost} onClearLog={clearLog} />
+              <HostControls
+                canUse={isHost}
+                onClearLog={clearLog}
+                onRenewSession={renewSession}
+                sessionTimeLeftLabel={sessionTimeLeftLabel}
+                renewalTimeLeftLabel={renewalTimeLeftLabel}
+              />
             </aside>
           </div>
         </div>

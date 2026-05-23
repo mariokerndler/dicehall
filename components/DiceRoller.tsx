@@ -4,8 +4,8 @@ import { Plus, RotateCcw, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import {
   formatRollRequestExpression,
+  isSupportedDie,
   SUPPORTED_DICE,
-  type DiceSides,
   type DiceTerm,
   type RollVisibility
 } from "../lib/dice";
@@ -20,7 +20,7 @@ type DraftTerm = DiceTerm & {
   id: string;
 };
 
-function createDraftTerm(sides: DiceSides = 20): DraftTerm {
+function createDraftTerm(sides = 20): DraftTerm {
   return {
     id: crypto.randomUUID(),
     quantity: 1,
@@ -51,7 +51,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
     setTerms((current) => (current.length === 1 ? current : current.filter((term) => term.id !== id)));
   }
 
-  function addTerm(sides: DiceSides) {
+  function addTerm(sides: number) {
     setTerms((current) => [...current, createDraftTerm(sides)]);
   }
 
@@ -95,20 +95,40 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
               />
             </label>
 
-            <label className="block">
-              <span className="text-xs font-semibold text-stone-400">Die</span>
-              <select
-                value={term.sides}
-                onChange={(event) => updateTerm(term.id, { sides: Number(event.target.value) })}
-                className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none focus:border-brass focus:ring-2 focus:ring-brass/30"
-              >
-                {SUPPORTED_DICE.map((sides) => (
-                  <option key={sides} value={sides}>
-                    d{sides}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="grid gap-2">
+              <label className="block">
+                <span className="text-xs font-semibold text-stone-400">Die</span>
+                <select
+                  value={isSupportedDie(term.sides) ? String(term.sides) : "custom"}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    updateTerm(term.id, { sides: value === "custom" ? 3 : Number(value) });
+                  }}
+                  className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none focus:border-brass focus:ring-2 focus:ring-brass/30"
+                >
+                  {SUPPORTED_DICE.map((sides) => (
+                    <option key={sides} value={sides}>
+                      d{sides}
+                    </option>
+                  ))}
+                  <option value="custom">Custom</option>
+                </select>
+              </label>
+
+              {!isSupportedDie(term.sides) ? (
+                <label className="block">
+                  <span className="text-xs font-semibold text-stone-400">Sides</span>
+                  <input
+                    min={2}
+                    max={1000}
+                    type="number"
+                    value={term.sides}
+                    onChange={(event) => updateTerm(term.id, { sides: Number(event.target.value) })}
+                    className="mt-1 h-10 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none focus:border-brass focus:ring-2 focus:ring-brass/30"
+                  />
+                </label>
+              ) : null}
+            </div>
 
             <button
               type="button"
@@ -134,6 +154,14 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
               d{sides}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => addTerm(3)}
+            className="inline-flex h-9 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-stone-200 transition hover:border-brass/60 hover:text-brass focus:outline-none focus:ring-2 focus:ring-brass"
+          >
+            <Plus size={13} />
+            Custom
+          </button>
         </div>
       </div>
 
