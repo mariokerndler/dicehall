@@ -39,3 +39,4 @@ Thumbs.db
 
 # local app data
 *.local
+data/feedback.jsonl

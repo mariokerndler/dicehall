@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import express from "express";
 import helmet from "helmet";
 import next from "next";
+import { attachFeedbackRoutes } from "./feedback";
 import { attachRealtimeServer } from "./realtime";
 
 const dev = process.env.NODE_ENV !== "production";
@@ -25,6 +26,7 @@ async function main() {
   );
 
   attachRealtimeServer(httpServer);
+  attachFeedbackRoutes(app);
 
   app.get("/api/realtime-health", (_req, res) => {
     res.json({
