@@ -447,7 +447,7 @@ describe("realtime security", () => {
       return;
     }
 
-    const closed = onceSocketEvent<{ reason: string }>(dm, "lobby:closed");
+    const closed = onceSocketEvent<{ code: string; reason: string }>(dm, "lobby:closed");
     const lobby = __getRealtimeLobbyForTests(create.data.state.code);
     expect(lobby).toBeDefined();
     if (!lobby) {
@@ -457,7 +457,7 @@ describe("realtime security", () => {
 
     pruneExpiredLobbies(Date.now());
 
-    await expect(closed).resolves.toEqual({ reason: "expired" });
+    await expect(closed).resolves.toEqual({ code: create.data.state.code, reason: "expired" });
     expect(__getRealtimeLobbyStateForTests(create.data.state.code)).toBeUndefined();
   });
 

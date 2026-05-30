@@ -12,6 +12,7 @@ import { PlayerList } from "../components/PlayerList";
 import { RollLog } from "../components/RollLog";
 import { SiteFooter } from "../components/SiteFooter";
 import type { DiceTerm, Roll, RollVisibility } from "../lib/dice";
+import { shouldHandleLobbyClosedEvent } from "../lib/lobby-events";
 import type { LobbyState, Player } from "../lib/lobby";
 import { normalizeLobbyCode } from "../lib/lobby";
 import { getSocketTransports } from "../lib/socket";
@@ -107,6 +108,7 @@ export default function Home() {
   const [now, setNow] = useState(() => Date.now());
   const socketRef = useRef<Socket | null>(null);
   const sessionRef = useRef(session);
+  const lobbyRef = useRef<LobbyState | null>(null);
 
   useEffect(() => {
     sessionRef.current = session;
@@ -120,7 +122,7 @@ export default function Home() {
     socketRef.current = socket;
 
     socket.on("lobby:state", (state: LobbyState) => {
-      setLobby(state);
+      applyLobbyState(state);
     });
 
     socket.on("roll:start", (roll: PendingRoll) => {
@@ -144,9 +146,13 @@ export default function Home() {
       }
     });
 
-    socket.on("lobby:closed", ({ reason }: { reason: string }) => {
+    socket.on("lobby:closed", ({ code, reason }: { code?: string; reason: string }) => {
+      if (!shouldHandleLobbyClosedEvent(lobbyRef.current?.code ?? sessionRef.current.lobbyCode, code)) {
+        return;
+      }
+
       setError(reason === "expired" ? "The lobby session expired." : "The lobby was closed.");
-      setLobby(null);
+      applyLobbyState(null);
       setPendingRolls([]);
       setSession((current) => {
         const next = { ...current, lobbyCode: "" };
@@ -187,6 +193,12 @@ export default function Home() {
     });
   }
 
+  function applyLobbyState(nextLobby: LobbyState | null) {
+    lobbyRef.current = nextLobby;
+    setNow(Date.now());
+    setLobby(nextLobby);
+  }
+
   function handleAck<T>(response: Ack<T> | undefined) {
     if (!response) {
       setError("No response from the server.");
@@ -221,7 +233,7 @@ export default function Home() {
         const data = handleAck(response);
 
         if (data) {
-          setLobby(data.state);
+          applyLobbyState(data.state);
           updateSession({
             playerId: data.player.id,
             sessionToken: data.sessionToken,
@@ -257,7 +269,7 @@ export default function Home() {
         const data = handleAck(response);
 
         if (data) {
-          setLobby(data.state);
+          applyLobbyState(data.state);
           updateSession({
             playerId: data.player.id,
             sessionToken: data.sessionToken,
@@ -339,14 +351,14 @@ export default function Home() {
         const data = handleAck(response);
 
         if (data) {
-          setLobby(data);
+          applyLobbyState(data);
         }
       }
     );
   }
 
   function leaveLobby() {
-    setLobby(null);
+    applyLobbyState(null);
     setPendingRolls([]);
     updateSession({ lobbyCode: "" });
   }

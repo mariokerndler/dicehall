@@ -183,7 +183,7 @@ function getSocketLobbyPlayer(socket: Socket, code: string): SocketLobbyPlayerRe
 export function pruneExpiredLobbies(now = Date.now()): void {
   for (const [code, lobby] of lobbies) {
     if (now > lobby.expiresAt) {
-      realtimeServer?.to(code).emit("lobby:closed", { reason: "expired" });
+      realtimeServer?.to(code).emit("lobby:closed", { code, reason: "expired" });
       lobbies.delete(code);
       continue;
     }
