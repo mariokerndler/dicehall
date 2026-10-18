@@ -7,10 +7,11 @@ type PlayerListProps = {
   players: Player[];
   currentPlayerId: string;
   isHost: boolean;
+  disabled?: boolean;
   onRemovePlayer: (playerId: string) => void;
 };
 
-export function PlayerList({ players, currentPlayerId, isHost, onRemovePlayer }: PlayerListProps) {
+export function PlayerList({ players, currentPlayerId, isHost, disabled, onRemovePlayer }: PlayerListProps) {
   return (
     <section className="rounded-xl border border-white/10 bg-ink-900/80 p-5 shadow-card">
       <div className="mb-4 flex items-center justify-between gap-3">
@@ -46,6 +47,7 @@ export function PlayerList({ players, currentPlayerId, isHost, onRemovePlayer }:
             {isHost && !player.isHost ? (
               <button
                 type="button"
+                disabled={disabled}
                 onClick={() => onRemovePlayer(player.id)}
                 aria-label={`Remove ${player.username}`}
                 className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-white/10 text-stone-300 transition hover:border-crimson/50 hover:text-crimson focus:outline-none focus:ring-2 focus:ring-crimson"

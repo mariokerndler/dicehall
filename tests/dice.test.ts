@@ -12,6 +12,27 @@ import {
 } from "../lib/dice";
 
 describe("dice logic", () => {
+  it.each([
+    null, undefined, [], {},
+    { terms: [null], modifier: 0 },
+    { terms: [undefined], modifier: 0 },
+    { terms: [[]], modifier: 0 },
+    { terms: ["1d20"], modifier: 0 },
+    { terms: [{}], modifier: 0 },
+    { terms: [{ quantity: 1 }], modifier: 0 },
+    { terms: [{ quantity: {}, sides: 20 }], modifier: 0 },
+    { terms: [{ quantity: 1, sides: [] }], modifier: 0 },
+    { terms: [{ quantity: "1", sides: 20 }], modifier: 0 },
+    { terms: [{ quantity: 1, sides: 20 }], modifier: null },
+    { terms: [{ quantity: 1, sides: 20 }], modifier: {} },
+    { terms: [{ quantity: 1, sides: 20 }] },
+    { terms: [{ quantity: 1, sides: NaN }], modifier: 0 },
+    { terms: [{ quantity: 1, sides: 20 }], modifier: Infinity },
+    { terms: [{ quantity: 20, sides: 6 }, { quantity: 1, sides: 20 }], modifier: 0 }
+  ])("rejects malformed or invalid roll input without throwing (%#)", (request) => {
+    expect(validateRollRequest(request).ok).toBe(false);
+  });
+
   it("rolls the requested quantity within the selected die bounds", () => {
     const results = rollDice(4, 8);
 

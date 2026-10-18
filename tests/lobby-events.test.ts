@@ -9,4 +9,10 @@ describe("lobby close events", () => {
   it("ignores stale close events from a previous lobby", () => {
     expect(shouldHandleLobbyClosedEvent("NEW123", "OLD123")).toBe(false);
   });
+
+  it("ignores close events after leaving and events without a lobby code", () => {
+    expect(shouldHandleLobbyClosedEvent("", "ABC123")).toBe(false);
+    expect(shouldHandleLobbyClosedEvent(undefined, "ABC123")).toBe(false);
+    expect(shouldHandleLobbyClosedEvent("ABC123", undefined)).toBe(false);
+  });
 });

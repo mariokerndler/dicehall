@@ -1,7 +1,7 @@
 import { createServer, type Server as HttpServer } from "node:http";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { io as createClient, type Socket as ClientSocket } from "socket.io-client";
-import { addOrReconnectPlayer, createLobby } from "../lib/lobby";
+import { addOrReconnectPlayer, createLobby, type LobbyState, type Player } from "../lib/lobby";
 import {
   attachRealtimeServer,
   pruneExpiredLobbies,
@@ -17,6 +17,7 @@ type Ack<T = unknown> = { ok: true; data: T } | { ok: false; error: string };
 
 type TestServer = {
   httpServer: HttpServer;
+  io: ReturnType<typeof attachRealtimeServer>;
   url: string;
   close: () => Promise<void>;
 };
@@ -39,6 +40,7 @@ async function startTestServer(): Promise<TestServer> {
 
   return {
     httpServer,
+    io,
     url: `http://127.0.0.1:${address.port}`,
     close: async () => {
       io.close();
@@ -64,9 +66,32 @@ async function connectClient(url: string): Promise<ClientSocket> {
 }
 
 function emitAck<T>(socket: ClientSocket, event: string, payload: unknown): Promise<Ack<T>> {
-  return new Promise((resolve) => {
-    socket.emit(event, payload, resolve);
+  return new Promise((resolve, reject) => {
+    socket.timeout(2000).emit(event, payload, (error: Error | null, response: Ack<T>) => {
+      if (error) reject(error);
+      else resolve(response);
+    });
   });
+}
+
+type PlayerSession = { state: LobbyState; player: Player; sessionToken: string };
+
+async function createSession(socket: ClientSocket): Promise<PlayerSession> {
+  const response = await emitAck<PlayerSession>(socket, "lobby:create", { username: "DM" });
+  if (!response.ok) throw new Error(response.error);
+  return response.data;
+}
+
+async function joinSession(socket: ClientSocket, code: string, session?: PlayerSession): Promise<PlayerSession> {
+  const response = await emitAck<PlayerSession>(socket, "lobby:join", {
+    code,
+    username: session?.player.username ?? "Alice",
+    playerId: session?.player.id,
+    sessionToken: session?.sessionToken,
+    resumeOnly: Boolean(session)
+  });
+  if (!response.ok) throw new Error(response.error);
+  return response.data;
 }
 
 function onceSocketEvent<T>(socket: ClientSocket, event: string): Promise<T> {
@@ -88,11 +113,310 @@ describe("realtime security", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     for (const client of clients.splice(0)) {
       client.disconnect();
     }
     await server?.close();
     __resetRealtimeStateForTests();
+  });
+
+  it.each(["roll:start", "host:renewSession", "host:clearLog", "host:removePlayer", "lobby:join"])(
+    "rejects %s at the session deadline without waiting for cleanup",
+    async (event) => {
+      const dm = await connectClient(server.url);
+      const created = await createSession(dm);
+      const code = created.state.code;
+      const player = await connectClient(server.url);
+      const joined = await joinSession(player, code);
+      const lobby = __getRealtimeLobbyForTests(code)!;
+      const deadline = Date.now();
+      lobby.expiresAt = deadline;
+      vi.spyOn(Date, "now").mockReturnValue(deadline);
+      const closures = [dm, player].map(socket => onceSocketEvent(socket, "lobby:closed"));
+
+      const result = await emitAck(dm, event, {
+        code, username: "Late player", playerId: joined.player.id,
+        terms: [{ quantity: 1, sides: 20 }], modifier: 0
+      });
+
+      expect(result.ok).toBe(false);
+      for (const closed of closures) {
+        await expect(closed).resolves.toEqual({ code, reason: "expired" });
+      }
+      expect(__getRealtimeLobbyForTests(code)).toBeUndefined();
+      expect(lobby.expiresAt).toBe(deadline);
+      expect(lobby.players).toHaveLength(2);
+      expect(lobby.rolls).toHaveLength(0);
+      for (const socket of [dm, player]) {
+        const bound = server.io.sockets.sockets.get(socket.id!)!;
+        expect([...bound.rooms]).toEqual([socket.id]);
+        expect(bound.data.playerId).toBeUndefined();
+      }
+    }
+  );
+
+  it("accepts a roll just before the deadline and renews the session", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const code = created.state.code;
+    const lobby = __getRealtimeLobbyForTests(code)!;
+    const deadline = Date.now() + 1000;
+    lobby.expiresAt = deadline;
+    vi.spyOn(Date, "now").mockReturnValue(deadline - 1);
+
+    const result = await emitAck(dm, "roll:start", {
+      code, terms: [{ quantity: 1, sides: 20 }], modifier: 0
+    });
+
+    expect(result.ok).toBe(true);
+    expect(lobby.expiresAt).toBe(deadline - 1 + SECURITY_LIMITS.lobbySessionDurationMs);
+  });
+
+  it("prunes sessions at the exact deadline", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const closed = onceSocketEvent(dm, "lobby:closed");
+    pruneExpiredLobbies(created.state.expiresAt);
+    await expect(closed).resolves.toEqual({ code: created.state.code, reason: "expired" });
+    expect(__getRealtimeLobbyForTests(created.state.code)).toBeUndefined();
+  });
+
+  it("does not commit a delayed roll to a lobby that has since expired", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const code = created.state.code;
+    const lobby = __getRealtimeLobbyForTests(code)!;
+    const committed = vi.fn();
+    dm.on("roll:committed", committed);
+    const closed = onceSocketEvent(dm, "lobby:closed");
+    await emitAck(dm, "roll:start", { code, terms: [{ quantity: 1, sides: 20 }], modifier: 0 });
+    lobby.expiresAt = Date.now() - 1;
+
+    await expect(closed).resolves.toEqual({ code, reason: "expired" });
+    expect(committed).not.toHaveBeenCalled();
+    expect(lobby.rolls).toHaveLength(0);
+  });
+
+  it("clears pending public and private rolls while allowing subsequent rolls", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const code = created.state.code;
+    const player = await connectClient(server.url);
+    await joinSession(player, code);
+    const dmCommits = vi.fn();
+    const playerCommits = vi.fn();
+    dm.on("roll:committed", dmCommits);
+    player.on("roll:committed", playerCommits);
+    for (const visibility of ["public", "dm"]) {
+      expect((await emitAck(dm, "roll:start", {
+        code, terms: [{ quantity: 1, sides: 20 }], modifier: 0, visibility
+      })).ok).toBe(true);
+    }
+    const notifications = [dm, player].map(socket => onceSocketEvent(socket, "rolls:cleared"));
+    expect((await emitAck(dm, "host:clearLog", { code })).ok).toBe(true);
+    for (const notification of notifications) {
+      await expect(notification).resolves.toEqual({ code });
+    }
+    const committed = onceSocketEvent<{ id: string }>(dm, "roll:committed");
+    const next = await emitAck<{ rollId: string }>(dm, "roll:start", {
+      code, terms: [{ quantity: 1, sides: 6 }], modifier: 3
+    });
+    if (!next.ok) throw new Error(next.error);
+
+    expect((await committed).id).toBe(next.data.rollId);
+    await vi.waitFor(() => expect(playerCommits).toHaveBeenCalledTimes(1));
+    expect(dmCommits).toHaveBeenCalledTimes(1);
+    expect(playerCommits.mock.calls[0][0].id).toBe(next.data.rollId);
+    const lobby = __getRealtimeLobbyForTests(code)!;
+    expect(lobby.rolls.map(roll => roll.id)).toEqual([next.data.rollId]);
+    expect(lobby.privateRolls).toHaveLength(0);
+  });
+
+  it("clearing one lobby does not cancel another lobby's pending roll", async () => {
+    const first = await connectClient(server.url);
+    const firstSession = await createSession(first);
+    const second = await connectClient(server.url);
+    const secondSession = await createSession(second);
+    const committed = onceSocketEvent<{ id: string }>(second, "roll:committed");
+    const roll = await emitAck<{ rollId: string }>(second, "roll:start", {
+      code: secondSession.state.code, terms: [{ quantity: 1, sides: 20 }], modifier: 0
+    });
+    if (!roll.ok) throw new Error(roll.error);
+    await emitAck(first, "host:clearLog", { code: firstSession.state.code });
+    expect((await committed).id).toBe(roll.data.rollId);
+    expect(__getRealtimeLobbyForTests(secondSession.state.code)!.rolls).toHaveLength(1);
+  });
+
+  it("keeps a renewed lobby and its DM identity after a long DM absence", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const code = created.state.code;
+    const player = await connectClient(server.url);
+    await joinSession(player, code);
+    expect((await emitAck(dm, "lobby:leave", {})).ok).toBe(true);
+    const lobby = __getRealtimeLobbyForTests(code)!;
+    lobby.players[0].disconnectedAt = Date.now() - SECURITY_LIMITS.disconnectedPlayerTtlMs - 1;
+    lobby.expiresAt = Date.now() + 1000;
+
+    expect((await emitAck(player, "roll:start", {
+      code, terms: [{ quantity: 1, sides: 20 }], modifier: 0
+    })).ok).toBe(true);
+    pruneExpiredLobbies();
+
+    expect(__getRealtimeLobbyForTests(code)).toBe(lobby);
+    expect(lobby.players[0].id).toBe(created.player.id);
+    expect(lobby.expiresAt).toBeGreaterThan(Date.now() + 59 * 60 * 1000);
+    const resumed = await joinSession(dm, code, created);
+    expect(resumed.player.isHost).toBe(true);
+  });
+
+  it("restores the same identity after reconnecting and permits rolls", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    dm.disconnect();
+    await vi.waitFor(() => expect(__getRealtimeLobbyForTests(created.state.code)!.players[0].connected).toBe(false));
+    const reconnected = await connectClient(server.url);
+    const resumed = await joinSession(reconnected, created.state.code, created);
+
+    expect(resumed.player.id).toBe(created.player.id);
+    expect(resumed.player.diceColor).toBe(created.player.diceColor);
+    expect(resumed.state.players).toHaveLength(1);
+    expect(resumed.sessionToken).toBe(created.sessionToken);
+    // Retrying with credentials from before a lost response must also succeed.
+    expect((await joinSession(reconnected, created.state.code, created)).player.id).toBe(created.player.id);
+    expect((await emitAck(reconnected, "roll:start", {
+      code: created.state.code, terms: [{ quantity: 1, sides: 20 }], modifier: 0
+    })).ok).toBe(true);
+  });
+
+  it("rejects invalid resume credentials without adding or binding a player", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const stranger = await connectClient(server.url);
+    for (const credentials of [
+      {},
+      { playerId: created.player.id, sessionToken: "wrong" },
+      { playerId: "missing-player", sessionToken: created.sessionToken }
+    ]) {
+      const result = await emitAck(stranger, "lobby:join", {
+        code: created.state.code, username: "Alice", resumeOnly: true, ...credentials
+      });
+      expect(result.ok).toBe(false);
+    }
+    expect(__getRealtimeLobbyForTests(created.state.code)!.players).toHaveLength(1);
+    expect(server.io.sockets.sockets.get(stranger.id!)!.data.playerId).toBeUndefined();
+  });
+
+  it("leaves both rooms, retains identity, and receives no subsequent roll or state", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const code = created.state.code;
+    const player = await connectClient(server.url);
+    const joined = await joinSession(player, code);
+    expect((await emitAck(player, "lobby:leave", { playerId: created.player.id })).ok).toBe(true);
+    const bound = server.io.sockets.sockets.get(player.id!)!;
+    expect([...bound.rooms]).toEqual([player.id]);
+    expect(bound.data.playerId).toBeUndefined();
+    const lobby = __getRealtimeLobbyForTests(code)!;
+    expect(lobby.players.find(p => p.id === joined.player.id)?.connected).toBe(false);
+    expect(lobby.players[0].connected).toBe(true);
+    const received = vi.fn();
+    player.on("lobby:state", received);
+    player.on("roll:start", received);
+    player.on("roll:committed", received);
+    const committed = onceSocketEvent(dm, "roll:committed");
+    await emitAck(dm, "roll:start", { code, terms: [{ quantity: 1, sides: 20 }], modifier: 0 });
+    await committed;
+    expect(received).not.toHaveBeenCalled();
+    expect((await joinSession(player, code, joined)).player.id).toBe(joined.player.id);
+  });
+
+  it("updates old lobby presence when the same connection switches lobbies", async () => {
+    const dm = await connectClient(server.url);
+    const first = await createSession(dm);
+    const second = await createSession(dm);
+    const oldLobby = __getRealtimeLobbyForTests(first.state.code)!;
+    expect(oldLobby.players[0].connected).toBe(false);
+    expect(oldLobby.players[0].disconnectedAt).toEqual(expect.any(Number));
+    const bound = server.io.sockets.sockets.get(dm.id!)!;
+    expect(bound.rooms.has(first.state.code)).toBe(false);
+    expect(bound.rooms.has(`${first.state.code}:player:${first.player.id}`)).toBe(false);
+    expect(bound.rooms.has(second.state.code)).toBe(true);
+  });
+
+  it("keeps a player online until their last connection leaves or disconnects", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const first = await connectClient(server.url);
+    const joined = await joinSession(first, created.state.code);
+    const second = await connectClient(server.url);
+    await joinSession(second, created.state.code, joined);
+    await emitAck(first, "lobby:leave", {});
+    const player = __getRealtimeLobbyForTests(created.state.code)!.players.find(p => p.id === joined.player.id)!;
+    expect(player.connected).toBe(true);
+    expect(player.disconnectedAt).toBeUndefined();
+    second.disconnect();
+    await vi.waitFor(() => expect(player.connected).toBe(false));
+    expect(player.disconnectedAt).toEqual(expect.any(Number));
+  });
+
+  it("removes all connections for a player before broadcasting state", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const code = created.state.code;
+    const first = await connectClient(server.url);
+    const joined = await joinSession(first, code);
+    const second = await connectClient(server.url);
+    await joinSession(second, code, joined);
+    const notifications = [first, second].map(socket => onceSocketEvent(socket, "player:removed"));
+    const received = vi.fn();
+    for (const socket of [first, second]) {
+      let removed = false;
+      socket.once("player:removed", () => { removed = true; });
+      for (const event of ["lobby:state", "roll:start", "roll:committed"]) {
+        socket.on(event, (...args) => { if (removed) received(...args); });
+      }
+    }
+    expect((await emitAck(dm, "host:removePlayer", { code, playerId: joined.player.id })).ok).toBe(true);
+    for (const notification of notifications) {
+      await expect(notification).resolves.toEqual({ code, playerId: joined.player.id });
+    }
+    for (const socket of [first, second]) {
+      const bound = server.io.sockets.sockets.get(socket.id!)!;
+      expect([...bound.rooms]).toEqual([socket.id]);
+      expect(bound.data.playerId).toBeUndefined();
+      expect((await emitAck(socket, "roll:start", {
+        code, terms: [{ quantity: 1, sides: 20 }], modifier: 0
+      })).ok).toBe(false);
+    }
+    const committed = onceSocketEvent(dm, "roll:committed");
+    await emitAck(dm, "roll:start", { code, terms: [{ quantity: 1, sides: 20 }], modifier: 0 });
+    await committed;
+    expect(received).not.toHaveBeenCalled();
+    const invalidResume = await emitAck(first, "lobby:join", {
+      code, username: "Alice", playerId: joined.player.id, sessionToken: joined.sessionToken, resumeOnly: true
+    });
+    expect(invalidResume.ok).toBe(false);
+    expect((await joinSession(first, code)).player.id).not.toBe(joined.player.id);
+  });
+
+  it("rejects malformed socket dice requests and remains usable", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const code = created.state.code;
+    for (const request of [
+      { terms: [null], modifier: 0 },
+      { terms: [[]], modifier: 0 },
+      { terms: [{ quantity: 1 }], modifier: 0 },
+      { terms: [{ quantity: {}, sides: 20 }], modifier: 0 },
+      { terms: [{ quantity: 1, sides: 20 }], modifier: null }
+    ]) {
+      expect((await emitAck(dm, "roll:start", { code, ...request })).ok).toBe(false);
+    }
+    expect((await emitAck(dm, "roll:start", {
+      code, terms: [{ quantity: 1, sides: 20 }], modifier: -2, visibility: "dm"
+    })).ok).toBe(true);
   });
 
   it("creates lobbies with server-issued player IDs and private session tokens", async () => {
@@ -459,6 +783,24 @@ describe("realtime security", () => {
 
     await expect(closed).resolves.toEqual({ code: create.data.state.code, reason: "expired" });
     expect(__getRealtimeLobbyStateForTests(create.data.state.code)).toBeUndefined();
+    const bound = server.io.sockets.sockets.get(dm.id!)!;
+    expect([...bound.rooms]).toEqual([dm.id]);
+    expect(bound.data.playerId).toBeUndefined();
+  });
+
+  it("notifies and unsubscribes players if a lobby has lost its host record", async () => {
+    const dm = await connectClient(server.url);
+    const created = await createSession(dm);
+    const code = created.state.code;
+    const lobby = __getRealtimeLobbyForTests(code)!;
+    lobby.players = [];
+    const closed = onceSocketEvent(dm, "lobby:closed");
+    pruneExpiredLobbies();
+    await expect(closed).resolves.toEqual({ code, reason: "closed" });
+    expect(__getRealtimeLobbyForTests(code)).toBeUndefined();
+    const bound = server.io.sockets.sockets.get(dm.id!)!;
+    expect([...bound.rooms]).toEqual([dm.id]);
+    expect(bound.data.playerId).toBeUndefined();
   });
 
   it("rejects lobby creation when the active lobby limit is reached", async () => {

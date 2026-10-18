@@ -101,25 +101,30 @@ export function validateDiceRequest(request: DiceRequest): ValidationResult {
   return { ok: true, quantity, sides, modifier };
 }
 
-export function validateRollRequest(request: RollRequest): RollValidationResult {
-  const modifier = Number(request.modifier);
+export function validateRollRequest(request: unknown): RollValidationResult {
+  if (!request || typeof request !== "object" || Array.isArray(request)) {
+    return { ok: false, error: "Invalid dice request." };
+  }
 
-  if (!Number.isInteger(modifier) || modifier < MIN_MODIFIER || modifier > MAX_MODIFIER) {
+  const input = request as Record<string, unknown>;
+  const modifier = input.modifier;
+
+  if (typeof modifier !== "number" || !Number.isInteger(modifier) || modifier < MIN_MODIFIER || modifier > MAX_MODIFIER) {
     return { ok: false, error: `Modifier must be between ${MIN_MODIFIER} and ${MAX_MODIFIER}.` };
   }
 
-  if (!Array.isArray(request.terms) || request.terms.length < 1 || request.terms.length > MAX_TERMS) {
+  if (!Array.isArray(input.terms) || input.terms.length < 1 || input.terms.length > MAX_TERMS) {
     return { ok: false, error: `Choose between 1 and ${MAX_TERMS} dice groups.` };
   }
 
   const terms: ValidDiceTerm[] = [];
-  const totalDice = request.terms.reduce((sum, term) => sum + Number(term.quantity), 0);
+  let totalDice = 0;
 
-  if (!Number.isInteger(totalDice) || totalDice < 1 || totalDice > MAX_QUANTITY) {
-    return { ok: false, error: `Choose between 1 and ${MAX_QUANTITY} total dice.` };
-  }
-
-  for (const term of request.terms) {
+  for (const term of input.terms) {
+    if (!term || typeof term !== "object" || Array.isArray(term) ||
+        typeof term.quantity !== "number" || typeof term.sides !== "number") {
+      return { ok: false, error: "Invalid dice group." };
+    }
     const validation = validateDiceRequest({
       quantity: term.quantity,
       sides: term.sides,
@@ -134,6 +139,11 @@ export function validateRollRequest(request: RollRequest): RollValidationResult 
       quantity: validation.quantity,
       sides: validation.sides
     });
+    totalDice += validation.quantity;
+  }
+
+  if (totalDice > MAX_QUANTITY) {
+    return { ok: false, error: `Choose between 1 and ${MAX_QUANTITY} total dice.` };
   }
 
   return { ok: true, terms, modifier };

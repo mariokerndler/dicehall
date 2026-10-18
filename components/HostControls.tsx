@@ -4,6 +4,7 @@ import { Clock, RefreshCw, Shield, Trash2 } from "lucide-react";
 
 type HostControlsProps = {
   canUse: boolean;
+  disabled?: boolean;
   onClearLog: () => void;
   onRenewSession: () => void;
   sessionTimeLeftLabel: string;
@@ -12,6 +13,7 @@ type HostControlsProps = {
 
 export function HostControls({
   canUse,
+  disabled,
   onClearLog,
   onRenewSession,
   sessionTimeLeftLabel,
@@ -37,6 +39,7 @@ export function HostControls({
       <button
         type="button"
         onClick={onClearLog}
+        disabled={disabled}
         className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-brass/40 bg-ink-950/40 text-sm font-bold text-stone-100 transition hover:bg-brass/15 focus:outline-none focus:ring-2 focus:ring-brass"
       >
         <Trash2 size={16} />
@@ -51,6 +54,7 @@ export function HostControls({
           <button
             type="button"
             onClick={onRenewSession}
+            disabled={disabled}
             className="mt-3 inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-brass px-3 text-sm font-black uppercase tracking-[0.12em] text-ink-950 transition hover:bg-[#e2ad66] focus:outline-none focus:ring-2 focus:ring-brass"
           >
             <RefreshCw size={16} />

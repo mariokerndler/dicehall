@@ -25,7 +25,7 @@ import { isAllowedSocketOrigin, parseAllowedOrigins } from "../lib/origin";
 import { FixedWindowRateLimiter, type RateLimitRule } from "../lib/rate-limit";
 import { createSessionToken, hashSessionToken, verifySessionToken } from "../lib/security";
 
-type Ack<T = unknown> = (response: { ok: true; data: T } | { ok: false; error: string }) => void;
+type Ack<T = unknown> = (response: { ok: true; data: T } | { ok: false; error: string; retryable?: boolean }) => void;
 
 type CreateLobbyPayload = {
   username: string;
@@ -35,6 +35,7 @@ type JoinLobbyPayload = CreateLobbyPayload & {
   code: string;
   playerId?: string;
   sessionToken?: string;
+  resumeOnly?: boolean;
 };
 
 type RollPayload = {
@@ -67,6 +68,7 @@ export const SECURITY_LIMITS = {
 } as const;
 
 const lobbies = new Map<string, Lobby>();
+const rollLogVersions = new WeakMap<Lobby, number>();
 const rateLimiter = new FixedWindowRateLimiter();
 let realtimeServer: Server | undefined;
 
@@ -85,7 +87,24 @@ function emitLobbyState(io: Server, lobby: Lobby) {
 }
 
 function getLobby(code: string): Lobby | undefined {
-  return lobbies.get(normalizeLobbyCode(code));
+  const lobby = lobbies.get(normalizeLobbyCode(code));
+  if (lobby && Date.now() >= lobby.expiresAt) {
+    closeLobby(lobby, "expired");
+    return undefined;
+  }
+  return lobby;
+}
+
+function closeLobby(lobby: Lobby, reason: "expired" | "closed") {
+  realtimeServer?.to(lobby.code).emit("lobby:closed", { code: lobby.code, reason });
+  lobbies.delete(lobby.code);
+  const subscribers = realtimeServer?.sockets.adapter.rooms.get(lobby.code);
+  for (const socketId of [...(subscribers ?? [])]) {
+    const socket = realtimeServer?.sockets.sockets.get(socketId);
+    if (socket) {
+      unbindSocketFromPlayer(socket);
+    }
+  }
 }
 
 function getPlayer(lobby: Lobby, playerId: string) {
@@ -126,7 +145,7 @@ function isAllowed(
   socket: Socket,
   eventName: string,
   rule: RateLimitRule,
-  ack?: (response: { ok: false; error: string }) => void
+  ack?: (response: { ok: false; error: string; retryable?: boolean }) => void
 ): boolean {
   const key = `${socket.id}:${eventName}`;
 
@@ -134,8 +153,29 @@ function isAllowed(
     return true;
   }
 
-  ack?.({ ok: false, error: "Too many requests. Try again soon." });
+  ack?.({ ok: false, error: "Too many requests. Try again soon.", retryable: true });
   return false;
+}
+
+function unbindSocketFromPlayer(socket: Socket) {
+  const code = readString(socket.data.lobbyCode);
+  const playerId = readString(socket.data.playerId);
+  delete socket.data.lobbyCode;
+  delete socket.data.playerId;
+
+  if (!code || !playerId) {
+    return;
+  }
+
+  socket.leave(code);
+  socket.leave(playerRoom(code, playerId));
+  const lobby = lobbies.get(code);
+  const io = socket.nsp.server;
+
+  if (lobby && !socket.nsp.adapter.rooms.get(playerRoom(code, playerId))?.size) {
+    markPlayerDisconnected(lobby, playerId);
+    emitLobbyState(io, lobby);
+  }
 }
 
 function bindSocketToPlayer(socket: Socket, lobby: Lobby, playerId: string) {
@@ -143,11 +183,7 @@ function bindSocketToPlayer(socket: Socket, lobby: Lobby, playerId: string) {
   const previousPlayerId = readString(socket.data.playerId);
 
   if (previousCode && (previousCode !== lobby.code || previousPlayerId !== playerId)) {
-    socket.leave(previousCode);
-
-    if (previousPlayerId) {
-      socket.leave(playerRoom(previousCode, previousPlayerId));
-    }
+    unbindSocketFromPlayer(socket);
   }
 
   socket.join(lobby.code);
@@ -165,7 +201,7 @@ function getSocketLobbyPlayer(socket: Socket, code: string): SocketLobbyPlayerRe
     return { ok: false, error: "Join the lobby before using that control." };
   }
 
-  const lobby = lobbies.get(normalizedCode);
+  const lobby = getLobby(normalizedCode);
 
   if (!lobby) {
     return { ok: false, error: "Lobby no longer exists." };
@@ -181,17 +217,9 @@ function getSocketLobbyPlayer(socket: Socket, code: string): SocketLobbyPlayerRe
 }
 
 export function pruneExpiredLobbies(now = Date.now()): void {
-  for (const [code, lobby] of lobbies) {
-    if (now > lobby.expiresAt) {
-      realtimeServer?.to(code).emit("lobby:closed", { code, reason: "expired" });
-      lobbies.delete(code);
-      continue;
-    }
-
-    const host = getPlayer(lobby, lobby.hostId);
-
-    if (!host || (!host.connected && host.disconnectedAt && now - host.disconnectedAt > SECURITY_LIMITS.disconnectedPlayerTtlMs)) {
-      lobbies.delete(code);
+  for (const lobby of lobbies.values()) {
+    if (now >= lobby.expiresAt || !getPlayer(lobby, lobby.hostId)) {
+      closeLobby(lobby, now >= lobby.expiresAt ? "expired" : "closed");
       continue;
     }
 
@@ -302,7 +330,7 @@ export function attachRealtimeServer(httpServer: HttpServer) {
         return;
       }
 
-      const lobby = lobbies.get(code);
+      const lobby = getLobby(code);
 
       if (!lobby) {
         ack?.({ ok: false, error: "No lobby was found for that code." });
@@ -316,13 +344,19 @@ export function attachRealtimeServer(httpServer: HttpServer) {
         : false;
       const isNewPlayer = !canReconnect;
 
+      if (payload?.resumeOnly && !canReconnect) {
+        ack?.({ ok: false, error: "Your lobby session could not be restored. Join the lobby again." });
+        return;
+      }
+
       if (isNewPlayer && lobby.players.length >= SECURITY_LIMITS.maxPlayersPerLobby) {
         ack?.({ ok: false, error: "That lobby is full." });
         return;
       }
 
       const playerId = canReconnect && existingPlayer ? existingPlayer.id : randomUUID();
-      const sessionToken = createSessionToken();
+      // Retain authenticated credentials so a lost acknowledgement can be retried safely.
+      const sessionToken = canReconnect ? readString(payload?.sessionToken) : createSessionToken();
       const player = addOrReconnectPlayer(lobby, {
         id: playerId,
         username,
@@ -335,6 +369,11 @@ export function attachRealtimeServer(httpServer: HttpServer) {
         data: playerSessionResponse(lobby, player.id, sessionToken)
       });
       emitLobbyState(io, lobby);
+    });
+
+    socket.on("lobby:leave", (_payload: unknown, ack?: Ack) => {
+      unbindSocketFromPlayer(socket);
+      ack?.({ ok: true, data: null });
     });
 
     socket.on("roll:start", (payload: RollPayload, ack?: Ack) => {
@@ -381,6 +420,7 @@ export function attachRealtimeServer(httpServer: HttpServer) {
       }
 
       target.emit("roll:start", {
+        code: current.lobby.code,
         id: roll.id,
         playerName: roll.playerName,
         diceColor: roll.diceColor,
@@ -390,10 +430,11 @@ export function attachRealtimeServer(httpServer: HttpServer) {
 
       ack?.({ ok: true, data: { rollId: roll.id } });
 
+      const logVersion = rollLogVersions.get(current.lobby);
       setTimeout(() => {
-        const latestLobby = lobbies.get(current.lobby.code);
+        const latestLobby = getLobby(current.lobby.code);
 
-        if (!latestLobby) {
+        if (latestLobby !== current.lobby || rollLogVersions.get(latestLobby) !== logVersion) {
           return;
         }
 
@@ -408,7 +449,7 @@ export function attachRealtimeServer(httpServer: HttpServer) {
           commitTarget = commitTarget.to(room);
         }
 
-        commitTarget.emit("roll:committed", roll);
+        commitTarget.emit("roll:committed", { ...roll, code: current.lobby.code });
         emitLobbyState(io, latestLobby);
       }, 900);
     });
@@ -432,7 +473,9 @@ export function attachRealtimeServer(httpServer: HttpServer) {
         return;
       }
 
+      rollLogVersions.set(current.lobby, (rollLogVersions.get(current.lobby) ?? 0) + 1);
       clearRolls(current.lobby);
+      io.to(current.lobby.code).emit("rolls:cleared", { code: current.lobby.code });
       ack?.({ ok: true, data: toLobbyState(current.lobby, current.player.id) });
       emitLobbyState(io, current.lobby);
     });
@@ -487,27 +530,20 @@ export function attachRealtimeServer(httpServer: HttpServer) {
         return;
       }
 
-      io.to(current.lobby.code).emit("player:removed", { playerId: removed.id });
+      const room = playerRoom(current.lobby.code, removed.id);
+      io.to(room).emit("player:removed", { code: current.lobby.code, playerId: removed.id });
+      for (const socketId of [...(io.sockets.adapter.rooms.get(room) ?? [])]) {
+        const removedSocket = io.sockets.sockets.get(socketId);
+        if (removedSocket) {
+          unbindSocketFromPlayer(removedSocket);
+        }
+      }
       ack?.({ ok: true, data: toLobbyState(current.lobby, current.player.id) });
       emitLobbyState(io, current.lobby);
     });
 
     socket.on("disconnect", () => {
-      const code = socket.data.lobbyCode;
-      const playerId = socket.data.playerId;
-
-      if (!code || !playerId) {
-        return;
-      }
-
-      const lobby = lobbies.get(code);
-
-      if (!lobby) {
-        return;
-      }
-
-      markPlayerDisconnected(lobby, playerId);
-      emitLobbyState(io, lobby);
+      unbindSocketFromPlayer(socket);
     });
   });
 

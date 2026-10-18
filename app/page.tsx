@@ -1,7 +1,7 @@
 "use client";
 
 import { Dices, DoorOpen, Sparkles } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { DiceAnimation } from "../components/DiceAnimation";
 import { DiceRoller } from "../components/DiceRoller";
@@ -18,6 +18,7 @@ import { normalizeLobbyCode } from "../lib/lobby";
 import { getSocketTransports } from "../lib/socket";
 
 type PendingRoll = {
+  code: string;
   id: string;
   playerName: string;
   diceColor: string;
@@ -25,7 +26,9 @@ type PendingRoll = {
   visibility: RollVisibility;
 };
 
-type Ack<T> = { ok: true; data: T } | { ok: false; error: string };
+type Ack<T> = { ok: true; data: T } | { ok: false; error: string; retryable?: boolean };
+
+type PlayerSessionResponse = { state: LobbyState; player: Player; sessionToken: string };
 
 type Session = {
   playerId: string;
@@ -105,14 +108,52 @@ export default function Home() {
   const [pendingRolls, setPendingRolls] = useState<PendingRoll[]>([]);
   const [error, setError] = useState("");
   const [isBusy, setIsBusy] = useState(false);
+  const [isJoined, setIsJoined] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const socketRef = useRef<Socket | null>(null);
   const sessionRef = useRef(session);
   const lobbyRef = useRef<LobbyState | null>(null);
+  const joinedRef = useRef(false);
+  const generationRef = useRef(0);
 
-  useEffect(() => {
-    sessionRef.current = session;
-  }, [session]);
+  const updateSession = useCallback((patch: Partial<Session>) => {
+    const next = { ...sessionRef.current, ...patch };
+    sessionRef.current = next;
+    saveSession(next);
+    setSession(next);
+  }, []);
+
+  const setJoined = useCallback((value: boolean) => {
+    joinedRef.current = value;
+    setIsJoined(value);
+  }, []);
+
+  const applyLobbyState = useCallback((nextLobby: LobbyState | null) => {
+    lobbyRef.current = nextLobby;
+    setNow(Date.now());
+    setLobby(nextLobby);
+  }, []);
+
+  const acceptSession = useCallback((data: PlayerSessionResponse) => {
+    updateSession({
+      playerId: data.player.id,
+      sessionToken: data.sessionToken,
+      username: data.player.username,
+      lobbyCode: data.state.code,
+      diceColor: data.player.diceColor
+    });
+    applyLobbyState(data.state);
+    setJoined(true);
+  }, [updateSession, applyLobbyState, setJoined]);
+
+  const resetLobby = useCallback(() => {
+    generationRef.current += 1;
+    setJoined(false);
+    applyLobbyState(null);
+    setPendingRolls([]);
+    setIsBusy(false);
+    updateSession({ lobbyCode: "" });
+  }, [setJoined, applyLobbyState, updateSession]);
 
   useEffect(() => {
     const socket = io({
@@ -120,29 +161,91 @@ export default function Home() {
       transports: getSocketTransports()
     });
     socketRef.current = socket;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+
+    function resumeLobby(generation: number) {
+      if (generation !== generationRef.current || !socket.connected || !sessionRef.current.lobbyCode) {
+        return;
+      }
+
+      const saved = sessionRef.current;
+      socket.timeout(5000).emit("lobby:join", {
+        code: saved.lobbyCode,
+        username: saved.username,
+        playerId: saved.playerId,
+        sessionToken: saved.sessionToken,
+        resumeOnly: true
+      }, (timeout: Error | null, response?: Ack<PlayerSessionResponse>) => {
+        if (generation !== generationRef.current || !socket.connected) {
+          return;
+        }
+
+        if (timeout || !response || (!response.ok && response.retryable)) {
+          setError("Could not restore the lobby connection. Retrying…");
+          retryTimer = setTimeout(() => resumeLobby(generation), 5000);
+          return;
+        }
+
+        if (!response.ok) {
+          resetLobby();
+          setError(response.error);
+          return;
+        }
+
+        acceptSession(response.data);
+        setIsBusy(false);
+        setError("");
+      });
+    }
+
+    socket.on("connect", () => {
+      const generation = ++generationRef.current;
+      clearTimeout(retryTimer);
+      setJoined(false);
+      setIsBusy(Boolean(sessionRef.current.lobbyCode));
+      setError(sessionRef.current.lobbyCode ? "Restoring your lobby connection…" : "");
+      resumeLobby(generation);
+    });
+
+    socket.on("disconnect", () => {
+      generationRef.current += 1;
+      clearTimeout(retryTimer);
+      setJoined(false);
+      setIsBusy(false);
+      setPendingRolls([]);
+      if (sessionRef.current.lobbyCode) {
+        setError("Connection lost. Reconnecting to your lobby…");
+      }
+    });
 
     socket.on("lobby:state", (state: LobbyState) => {
-      applyLobbyState(state);
+      if (joinedRef.current && state.code === sessionRef.current.lobbyCode) {
+        applyLobbyState(state);
+      }
     });
 
     socket.on("roll:start", (roll: PendingRoll) => {
-      setPendingRolls((current) => [roll, ...current].slice(0, 3));
+      if (joinedRef.current && roll.code === sessionRef.current.lobbyCode) {
+        setPendingRolls((current) => [roll, ...current].slice(0, 3));
+      }
     });
 
-    socket.on("roll:committed", (roll: Roll) => {
-      setPendingRolls((current) => current.filter((candidate) => candidate.id !== roll.id));
+    socket.on("roll:committed", (roll: Roll & { code: string }) => {
+      if (joinedRef.current && roll.code === sessionRef.current.lobbyCode) {
+        setPendingRolls((current) => current.filter((candidate) => candidate.id !== roll.id));
+      }
     });
 
-    socket.on("player:removed", ({ playerId }: { playerId: string }) => {
-      if (playerId === sessionRef.current.playerId) {
-        setError("You were removed from the lobby by the DM.");
-        setLobby(null);
+    socket.on("rolls:cleared", ({ code }: { code: string }) => {
+      if (joinedRef.current && code === sessionRef.current.lobbyCode) {
         setPendingRolls([]);
-        setSession((current) => {
-          const next = { ...current, lobbyCode: "" };
-          saveSession(next);
-          return next;
-        });
+      }
+    });
+
+    socket.on("player:removed", ({ code, playerId }: { code: string; playerId: string }) => {
+      if (code === sessionRef.current.lobbyCode && playerId === sessionRef.current.playerId) {
+        resetLobby();
+        setError("You were removed from the lobby by the DM.");
       }
     });
 
@@ -152,13 +255,7 @@ export default function Home() {
       }
 
       setError(reason === "expired" ? "The lobby session expired." : "The lobby was closed.");
-      applyLobbyState(null);
-      setPendingRolls([]);
-      setSession((current) => {
-        const next = { ...current, lobbyCode: "" };
-        saveSession(next);
-        return next;
-      });
+      resetLobby();
     });
 
     socket.on("connect_error", (connectionError) => {
@@ -166,9 +263,12 @@ export default function Home() {
     });
 
     return () => {
+      clearTimeout(retryTimer);
+      generationRef.current += 1;
       socket.disconnect();
+      socketRef.current = null;
     };
-  }, []);
+  }, [acceptSession, resetLobby, applyLobbyState, setJoined]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setNow(Date.now()), 30_000);
@@ -185,23 +285,12 @@ export default function Home() {
   const renewalTimeLeftLabel =
     isHost && sessionTimeLeft <= SESSION_RENEWAL_WARNING_MS ? formatTimeLeft(sessionTimeLeft) : null;
 
-  function updateSession(patch: Partial<Session>) {
-    setSession((current) => {
-      const next = { ...current, ...patch };
-      saveSession(next);
-      return next;
-    });
-  }
-
-  function applyLobbyState(nextLobby: LobbyState | null) {
-    lobbyRef.current = nextLobby;
-    setNow(Date.now());
-    setLobby(nextLobby);
-  }
-
-  function handleAck<T>(response: Ack<T> | undefined) {
+  function handleAck<T>(response: Ack<T> | undefined, generation: number) {
+    if (generation !== generationRef.current || !socketRef.current?.connected) {
+      return null;
+    }
     if (!response) {
-      setError("No response from the server.");
+      setError("No response from the server. Please try again.");
       return null;
     }
 
@@ -215,6 +304,10 @@ export default function Home() {
   }
 
   async function createLobby() {
+    if (!socketRef.current?.connected) {
+      setError("Connect to the server before creating a lobby.");
+      return;
+    }
     const username = hostName.trim();
 
     if (!username) {
@@ -223,30 +316,30 @@ export default function Home() {
     }
 
     setIsBusy(true);
-    socketRef.current?.emit(
+    setError("");
+    const generation = ++generationRef.current;
+    socketRef.current.timeout(5000).emit(
       "lobby:create",
       {
         username
       },
-      (response: Ack<{ state: LobbyState; player: Player; sessionToken: string }>) => {
+      (timeout: Error | null, response?: Ack<PlayerSessionResponse>) => {
+        if (generation !== generationRef.current) return;
         setIsBusy(false);
-        const data = handleAck(response);
+        const data = handleAck(timeout ? undefined : response, generation);
 
         if (data) {
-          applyLobbyState(data.state);
-          updateSession({
-            playerId: data.player.id,
-            sessionToken: data.sessionToken,
-            username,
-            lobbyCode: data.state.code,
-            diceColor: data.player.diceColor
-          });
+          acceptSession(data);
         }
       }
     );
   }
 
   async function joinLobby() {
+    if (!socketRef.current?.connected) {
+      setError("Connect to the server before joining a lobby.");
+      return;
+    }
     const username = joinName.trim();
     const code = normalizeLobbyCode(joinCode);
 
@@ -256,7 +349,9 @@ export default function Home() {
     }
 
     setIsBusy(true);
-    socketRef.current?.emit(
+    setError("");
+    const generation = ++generationRef.current;
+    socketRef.current.timeout(5000).emit(
       "lobby:join",
       {
         code,
@@ -264,19 +359,13 @@ export default function Home() {
         playerId: session.playerId,
         sessionToken: session.sessionToken
       },
-      (response: Ack<{ state: LobbyState; player: Player; sessionToken: string }>) => {
+      (timeout: Error | null, response?: Ack<PlayerSessionResponse>) => {
+        if (generation !== generationRef.current) return;
         setIsBusy(false);
-        const data = handleAck(response);
+        const data = handleAck(timeout ? undefined : response, generation);
 
         if (data) {
-          applyLobbyState(data.state);
-          updateSession({
-            playerId: data.player.id,
-            sessionToken: data.sessionToken,
-            username: data.player.username,
-            lobbyCode: data.state.code,
-            diceColor: data.player.diceColor
-          });
+          acceptSession(data);
         }
       }
     );
@@ -288,67 +377,71 @@ export default function Home() {
   }, [lobby?.privateRolls, lobby?.rolls]);
 
   function rollDice(request: { terms: DiceTerm[]; modifier: number; visibility: RollVisibility }) {
-    if (!lobby) {
+    if (!lobby || !joinedRef.current || !socketRef.current?.connected) {
       return;
     }
 
-    socketRef.current?.emit(
+    const generation = generationRef.current;
+    socketRef.current.emit(
       "roll:start",
       {
         code: lobby.code,
         ...request
       },
       (response: Ack<{ rollId: string }>) => {
-        handleAck(response);
+        handleAck(response, generation);
       }
     );
   }
 
   function clearLog() {
-    if (!lobby) {
+    if (!lobby || !joinedRef.current || !socketRef.current?.connected) {
       return;
     }
 
-    socketRef.current?.emit(
+    const generation = generationRef.current;
+    socketRef.current.emit(
       "host:clearLog",
       {
         code: lobby.code
       },
       (response: Ack<LobbyState>) => {
-        handleAck(response);
+        handleAck(response, generation);
       }
     );
   }
 
   function removePlayer(playerId: string) {
-    if (!lobby) {
+    if (!lobby || !joinedRef.current || !socketRef.current?.connected) {
       return;
     }
 
-    socketRef.current?.emit(
+    const generation = generationRef.current;
+    socketRef.current.emit(
       "host:removePlayer",
       {
         code: lobby.code,
         playerId
       },
       (response: Ack<LobbyState>) => {
-        handleAck(response);
+        handleAck(response, generation);
       }
     );
   }
 
   function renewSession() {
-    if (!lobby) {
+    if (!lobby || !joinedRef.current || !socketRef.current?.connected) {
       return;
     }
 
-    socketRef.current?.emit(
+    const generation = generationRef.current;
+    socketRef.current.emit(
       "host:renewSession",
       {
         code: lobby.code
       },
       (response: Ack<LobbyState>) => {
-        const data = handleAck(response);
+        const data = handleAck(response, generation);
 
         if (data) {
           applyLobbyState(data);
@@ -358,9 +451,17 @@ export default function Home() {
   }
 
   function leaveLobby() {
-    applyLobbyState(null);
-    setPendingRolls([]);
-    updateSession({ lobbyCode: "" });
+    resetLobby();
+    setError("");
+    const generation = generationRef.current;
+    const socket = socketRef.current;
+    if (socket?.connected) {
+      socket.timeout(5000).emit("lobby:leave", {}, (timeout: Error | null) => {
+        if (timeout && generation === generationRef.current && socket.connected) {
+          socket.disconnect().connect();
+        }
+      });
+    }
   }
 
   if (lobby && currentPlayer) {
@@ -387,6 +488,7 @@ export default function Home() {
             <div className="grid gap-5 lg:grid-cols-[1fr_22rem]">
               <div className="grid gap-5 xl:grid-cols-[24rem_1fr]">
                 <DiceRoller
+                  disabled={!isJoined}
                   diceColor={currentPlayer.diceColor}
                   onRoll={rollDice}
                 />
@@ -398,12 +500,14 @@ export default function Home() {
 
               <aside className="grid content-start gap-5">
                 <PlayerList
+                  disabled={!isJoined}
                   players={lobby.players}
                   currentPlayerId={session.playerId}
                   isHost={isHost}
                   onRemovePlayer={removePlayer}
                 />
                 <HostControls
+                  disabled={!isJoined}
                   canUse={isHost}
                   onClearLog={clearLog}
                   onRenewSession={renewSession}
