@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Server as HttpServer } from "node:http";
+import { createClientAddressResolver } from "../lib/client-address";
 import { Server, type Socket } from "socket.io";
 import { createRoll, validateRollRequest, type DiceTerm, type RollVisibility } from "../lib/dice";
 import {
@@ -62,13 +63,18 @@ export const SECURITY_LIMITS = {
   disconnectedPlayerTtlMs: 30 * 60 * 1000,
   pruneIntervalMs: 5 * 60 * 1000,
   createLobbyRate: { limit: 5, windowMs: 60 * 1000 },
-  joinLobbyRate: { limit: 20, windowMs: 60 * 1000 },
+  joinLobbyRate: { limit: 60, windowMs: 60 * 1000 },
   rollRate: { limit: 30, windowMs: 60 * 1000 },
-  hostActionRate: { limit: 20, windowMs: 60 * 1000 }
+  hostActionRate: { limit: 20, windowMs: 60 * 1000 },
+  connectionRate: { limit: 60, windowMs: 60 * 1000 },
+  requestRate: { limit: 600, windowMs: 60 * 1000 },
+  maxConnectionsPerAddress: 48,
+  maxConnections: 6000
 } as const;
 
 const lobbies = new Map<string, Lobby>();
 const rollLogVersions = new WeakMap<Lobby, number>();
+// shortcut: limits apply to one server process; use a shared limiter before running multiple instances.
 const rateLimiter = new FixedWindowRateLimiter();
 let realtimeServer: Server | undefined;
 
@@ -147,7 +153,12 @@ function isAllowed(
   rule: RateLimitRule,
   ack?: (response: { ok: false; error: string; retryable?: boolean }) => void
 ): boolean {
-  const key = `${socket.id}:${eventName}`;
+  const playerId = readString(socket.data.playerId);
+  const usePlayerLimit = eventName === "roll:start" || eventName.startsWith("host:");
+  const identity = usePlayerLimit && playerId
+    ? `player:${playerId}`
+    : `address:${socket.data.clientAddress}`;
+  const key = `${identity}:${eventName}`;
 
   if (rateLimiter.check(key, rule)) {
     return true;
@@ -255,7 +266,7 @@ export function __getRealtimeLobbyStateForTests(code: string, viewerId?: string)
   return lobby ? toLobbyState(lobby, viewerId) : undefined;
 }
 
-export function attachRealtimeServer(httpServer: HttpServer) {
+export function attachRealtimeServer(httpServer: HttpServer, getClientAddress = createClientAddressResolver()) {
   const io = new Server(httpServer, {
     cors: {
       origin: (origin, callback) => {
@@ -268,7 +279,6 @@ export function attachRealtimeServer(httpServer: HttpServer) {
       const allowed = isAllowedSocketOrigin({
         origin: req.headers.origin,
         host: req.headers.host,
-        forwardedHost: req.headers["x-forwarded-host"],
         allowedOrigins
       });
 
@@ -276,8 +286,52 @@ export function attachRealtimeServer(httpServer: HttpServer) {
     }
   });
   realtimeServer = io;
+  const connectionsByAddress = new Map<string, number>();
+  let connectionCount = 0;
+
+  io.use((socket, next) => {
+    const address = getClientAddress(socket.request);
+    socket.data.clientAddress = address;
+    const connections = connectionsByAddress.get(address) ?? 0;
+    if (connectionCount >= SECURITY_LIMITS.maxConnections ||
+        connections >= SECURITY_LIMITS.maxConnectionsPerAddress ||
+        !rateLimiter.check(`address:${address}:connect`, SECURITY_LIMITS.connectionRate)) {
+      next(new Error("Too many connections. Try again soon."));
+      return;
+    }
+    // Reserve admission before Socket.IO finishes connecting, including transports that close early.
+    connectionsByAddress.set(address, connections + 1);
+    connectionCount += 1;
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      const remaining = (connectionsByAddress.get(address) ?? 0) - 1;
+      if (remaining > 0) connectionsByAddress.set(address, remaining);
+      else connectionsByAddress.delete(address);
+      connectionCount -= 1;
+      socket.conn.off("close", release);
+      socket.off("disconnect", release);
+    };
+    socket.conn.once("close", release);
+    socket.once("disconnect", release);
+    next();
+  });
 
   io.on("connection", (socket) => {
+    socket.use((packet, next) => {
+      if (packet.length > 3 || (packet.length === 3 && typeof packet[2] !== "function")) {
+        socket.disconnect(true);
+        return;
+      }
+      if (!rateLimiter.check(`address:${socket.data.clientAddress}:requests`, SECURITY_LIMITS.requestRate)) {
+        const ack = packet[2] as Ack | undefined;
+        ack?.({ ok: false, error: "Too many requests. Try again soon.", retryable: true });
+        return;
+      }
+      next();
+    });
+
     socket.on("lobby:create", (payload: CreateLobbyPayload, ack?: Ack<PlayerSessionResponse>) => {
       if (!isAllowed(socket, "lobby:create", SECURITY_LIMITS.createLobbyRate, ack)) {
         return;

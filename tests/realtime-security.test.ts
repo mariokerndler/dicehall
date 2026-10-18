@@ -49,11 +49,12 @@ async function startTestServer(): Promise<TestServer> {
   };
 }
 
-async function connectClient(url: string): Promise<ClientSocket> {
+async function connectClient(url: string, extraHeaders?: Record<string, string>): Promise<ClientSocket> {
   const socket = createClient(url, {
     path: "/socket.io",
     transports: ["polling"],
-    forceNew: true
+    forceNew: true,
+    extraHeaders
   });
   clients.push(socket);
 
@@ -119,6 +120,107 @@ describe("realtime security", () => {
     }
     await server?.close();
     __resetRealtimeStateForTests();
+  });
+
+  it.each([
+    "lobby:create", "lobby:join", "lobby:leave", "roll:start",
+    "host:clearLog", "host:renewSession", "host:removePlayer"
+  ])("rejects malformed acknowledgement arguments on %s without crashing", async (event) => {
+    const attacker = await connectClient(server.url);
+    const disconnected = onceSocketEvent(attacker, "disconnect");
+    attacker.emit(event, {}, "not-a-callback");
+    await disconnected;
+    expect(__getRealtimeLobbyCountForTests()).toBe(0);
+    const valid = await connectClient(server.url);
+    expect((await createSession(valid)).player.isHost).toBe(true);
+  });
+
+  it.each([null, false, {}, []])("rejects other non-function callbacks (%#)", async (callback) => {
+    const attacker = await connectClient(server.url);
+    const disconnected = onceSocketEvent(attacker, "disconnect");
+    attacker.emit("lobby:leave", {}, callback);
+    await disconnected;
+    const valid = await connectClient(server.url);
+    expect((await createSession(valid)).player.isHost).toBe(true);
+  });
+
+  it("rejects extra arguments even when the packet ends in a valid callback", async () => {
+    const attacker = await connectClient(server.url);
+    const disconnected = onceSocketEvent(attacker, "disconnect");
+    attacker.emit("lobby:create", { username: "DM" }, "not-a-callback", () => {});
+    await disconnected;
+    expect(__getRealtimeLobbyCountForTests()).toBe(0);
+  });
+
+  it("allows requests without an acknowledgement callback", async () => {
+    const dm = await connectClient(server.url);
+    dm.emit("lobby:leave", {});
+    expect((await createSession(dm)).player.isHost).toBe(true);
+  });
+
+  it("keeps create limits across connections and separates different client addresses", async () => {
+    const first = await connectClient(server.url, { "x-forwarded-for": "203.0.113.10" });
+    for (let index = 0; index < SECURITY_LIMITS.createLobbyRate.limit; index++) {
+      await createSession(first);
+    }
+    const reconnected = await connectClient(server.url, { "x-forwarded-for": "203.0.113.10" });
+    const denied = await emitAck(reconnected, "lobby:create", { username: "DM" });
+    expect(denied).toMatchObject({ ok: false, error: "Too many requests. Try again soon." });
+    const otherAddress = await connectClient(server.url, { "x-forwarded-for": "203.0.113.11" });
+    expect((await createSession(otherAddress)).player.isHost).toBe(true);
+  });
+
+  it("cannot reset address limits by prepending forged forwarded addresses", async () => {
+    for (let index = 0; index < SECURITY_LIMITS.createLobbyRate.limit; index++) {
+      const socket = await connectClient(server.url, {
+        "x-forwarded-for": `198.51.100.${index + 1}, 203.0.113.10`
+      });
+      await createSession(socket);
+    }
+    const attacker = await connectClient(server.url, {
+      "x-forwarded-for": "198.51.100.99, 203.0.113.10"
+    });
+    expect((await emitAck(attacker, "lobby:create", { username: "DM" })).ok).toBe(false);
+  });
+
+  it.each(["roll:start", "host:renewSession"])("shares the %s limit across a player's connections", async (event) => {
+    const first = await connectClient(server.url);
+    const created = await createSession(first);
+    const second = await connectClient(server.url);
+    await joinSession(second, created.state.code, created);
+    const limit = event === "roll:start" ? SECURITY_LIMITS.rollRate.limit : SECURITY_LIMITS.hostActionRate.limit;
+    for (let index = 0; index < limit; index++) {
+      const response = await emitAck(first, event, { code: created.state.code, terms: [], modifier: 0 });
+      if (!response.ok) expect(response.error).not.toBe("Too many requests. Try again soon.");
+    }
+    expect(await emitAck(second, event, { code: created.state.code, terms: [], modifier: 0 }))
+      .toMatchObject({ ok: false, error: "Too many requests. Try again soon." });
+  });
+
+  it("caps concurrent connections per address and releases disconnected slots", async () => {
+    const outcomes = await Promise.allSettled(Array.from({ length: SECURITY_LIMITS.maxConnectionsPerAddress + 1 }, () =>
+      connectClient(server.url)
+    ));
+    const opened = outcomes.flatMap(outcome => outcome.status === "fulfilled" ? [outcome.value] : []);
+    const rejected = outcomes.filter(outcome => outcome.status === "rejected");
+    expect(opened).toHaveLength(SECURITY_LIMITS.maxConnectionsPerAddress);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toContain("Too many connections");
+    opened[0].disconnect();
+    await vi.waitFor(() => expect(server.io.sockets.sockets.size).toBe(SECURITY_LIMITS.maxConnectionsPerAddress - 1));
+    const replacement = await connectClient(server.url);
+    expect(replacement.connected).toBe(true);
+  }, 15_000);
+
+  it("shares the overall request budget across connections", async () => {
+    const first = await connectClient(server.url);
+    const second = await connectClient(server.url);
+    const replies = await Promise.all(Array.from({ length: SECURITY_LIMITS.requestRate.limit }, (_, index) =>
+      emitAck(index % 2 ? first : second, "lobby:leave", {})
+    ));
+    expect(replies.every(response => response.ok)).toBe(true);
+    expect(await emitAck(second, "lobby:leave", {}))
+      .toMatchObject({ ok: false, error: "Too many requests. Try again soon." });
   });
 
   it.each(["roll:start", "host:renewSession", "host:clearLog", "host:removePlayer", "lobby:join"])(

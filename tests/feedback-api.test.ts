@@ -12,8 +12,9 @@ type TestServer = {
 
 let tempDir = "";
 
-async function startServer(feedbackFile: string): Promise<TestServer> {
+async function startServer(feedbackFile: string, trustedProxies: string[] = []): Promise<TestServer> {
   const app = express();
+  app.set("trust proxy", trustedProxies);
   attachFeedbackRoutes(app, { feedbackFile });
 
   const server = app.listen(0, "127.0.0.1");
@@ -39,6 +40,40 @@ describe("feedback API", () => {
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
     __resetFeedbackRateLimitForTests();
+  });
+
+  it("keeps separate feedback limits for clients behind a trusted proxy", async () => {
+    const server = await startServer(join(tempDir, "feedback.jsonl"), ["loopback"]);
+    try {
+      for (let index = 1; index <= 6; index++) {
+        const response = await fetch(`${server.url}/api/feedback`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": `203.0.113.${index}` },
+          body: JSON.stringify({ type: "bug", message: "Test feedback" })
+        });
+        expect(response.status).toBe(201);
+        await response.json();
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  it.each([{ trustedProxies: [] }, { trustedProxies: ["loopback"] }])("does not let spoofed forwarded prefixes reset feedback limits (%#)", async ({ trustedProxies }) => {
+    const server = await startServer(join(tempDir, "feedback.jsonl"), trustedProxies);
+    try {
+      for (let index = 1; index <= 6; index++) {
+        const response = await fetch(`${server.url}/api/feedback`, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": `198.51.100.${index}, 203.0.113.10` },
+          body: JSON.stringify({ type: "bug", message: "Test feedback" })
+        });
+        expect(response.status).toBe(index <= 5 ? 201 : 429);
+        await response.json();
+      }
+    } finally {
+      await server.close();
+    }
   });
 
   it("appends anonymous feedback as JSONL", async () => {

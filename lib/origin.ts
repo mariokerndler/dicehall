@@ -1,7 +1,6 @@
 export type SocketOriginCheck = {
   origin?: string;
   host?: string | string[];
-  forwardedHost?: string | string[];
   allowedOrigins?: string[];
 };
 
@@ -31,7 +30,6 @@ export function parseAllowedOrigins(value = process.env.DICEHALL_ALLOWED_ORIGINS
 export function isAllowedSocketOrigin({
   origin,
   host,
-  forwardedHost,
   allowedOrigins = parseAllowedOrigins()
 }: SocketOriginCheck): boolean {
   if (!origin) {
@@ -45,7 +43,7 @@ export function isAllowedSocketOrigin({
   }
 
   const originHost = new URL(normalizedOrigin).host.toLowerCase();
-  const requestHost = firstHeaderValue(forwardedHost) || firstHeaderValue(host);
+  const requestHost = firstHeaderValue(host);
 
   if (requestHost && originHost === requestHost) {
     return true;

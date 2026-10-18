@@ -38,6 +38,7 @@ export function attachFeedbackRoutes(app: Express, options?: FeedbackRouteOption
     "/api/feedback",
     express.json({ limit: "8kb" }),
     async (req: Request, res: Response) => {
+      feedbackRateLimiter.prune();
       if (!feedbackRateLimiter.check(clientRateLimitKey(req), FEEDBACK_RATE_LIMIT)) {
         res.status(429).json({ ok: false, error: "Too many requests. Try again soon." });
         return;

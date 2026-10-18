@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import express from "express";
 import helmet from "helmet";
 import next from "next";
+import { createClientAddressResolver, parseTrustedProxies } from "../lib/client-address";
 import { attachFeedbackRoutes } from "./feedback";
 import { attachRealtimeServer } from "./realtime";
 
@@ -16,6 +17,8 @@ async function main() {
   await nextApp.prepare();
 
   const app = express();
+  const trustedProxies = parseTrustedProxies();
+  app.set("trust proxy", trustedProxies);
   const httpServer = createServer(app);
 
   app.use(
@@ -25,7 +28,7 @@ async function main() {
     })
   );
 
-  attachRealtimeServer(httpServer);
+  attachRealtimeServer(httpServer, createClientAddressResolver(trustedProxies));
   attachFeedbackRoutes(app);
 
   app.get("/api/realtime-health", (_req, res) => {
