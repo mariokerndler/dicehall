@@ -12,7 +12,7 @@
     "build": "next build && npm run build:server",
     "build:server": "esbuild server/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/server.js --external:next --external:express --external:socket.io",
     "start": "node server.js",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "vitest run"
   },
   "overrides": {
