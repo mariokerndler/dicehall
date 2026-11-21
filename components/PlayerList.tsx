@@ -13,20 +13,21 @@ type PlayerListProps = {
 
 export function PlayerList({ players, currentPlayerId, isHost, disabled, onRemovePlayer }: PlayerListProps) {
   return (
-    <section className="rounded-xl border border-white/10 bg-ink-900/80 p-5 shadow-card">
+    <section className="panel">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Users size={18} className="text-brass" />
           <h2 className="text-lg font-bold text-stone-50">Players</h2>
         </div>
-        <span className="text-sm text-stone-400">{players.length}</span>
+        <span className="text-sm tabular-nums text-stone-400">{players.length}</span>
       </div>
 
       <div className="space-y-2">
-        {players.map((player) => (
+        {players.map((player, index) => (
           <div
             key={player.id}
-            className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-3"
+            style={{ animationDelay: `${Math.min(index, 5) * 30}ms` }}
+            className="enter-row flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/[0.035] px-3 py-3"
           >
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -40,7 +41,7 @@ export function PlayerList({ players, currentPlayerId, isHost, disabled, onRemov
                 </p>
                 {player.isHost ? <Crown size={15} className="shrink-0 text-brass" /> : null}
               </div>
-              <p className="mt-1 text-xs text-stone-500">
+              <p className="mt-1 text-xs text-stone-400">
                 {player.connected ? "Online" : "Disconnected"}
               </p>
             </div>

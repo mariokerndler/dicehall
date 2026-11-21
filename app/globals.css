@@ -17,17 +17,82 @@ body {
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at top left, rgba(122, 162, 255, 0.14), transparent 30rem),
-    radial-gradient(circle at bottom right, rgba(215, 155, 74, 0.14), transparent 34rem),
-    #07080d;
+  background: #07080d;
   color: #f7efe1;
+  font-family: system-ui, sans-serif;
 }
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
+}
+
+@layer components {
+  .panel {
+    @apply min-w-0 rounded-xl border border-white/10 bg-ink-900 p-6;
+  }
+
+  .enter-row {
+    animation: enter-row 180ms ease-out both;
+  }
+
+  .success-pulse {
+    animation: success-pulse 200ms ease-out;
+  }
+}
+
+button {
+  transition: background-color 150ms ease-out, border-color 150ms ease-out,
+    color 150ms ease-out;
+}
+
+:focus-visible {
+  outline: 2px solid theme("colors.brass");
+  outline-offset: 4px;
+}
+
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes enter-row {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes success-pulse {
+  50% { opacity: 0.65; }
+}
+
+dialog {
+  opacity: 0;
+  transition: opacity 160ms ease-out,
+    display 160ms allow-discrete, overlay 160ms allow-discrete;
+}
+
+dialog[open] {
+  opacity: 1;
+  transition-duration: 200ms;
+}
+
+dialog:not([open]) {
+  pointer-events: none;
+}
+
+@starting-style {
+  dialog[open] {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 ::selection {

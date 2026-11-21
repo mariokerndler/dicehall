@@ -5,14 +5,14 @@ export default function PrivacyPage() {
   return (
     <>
       <main className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-        <article className="mx-auto max-w-3xl rounded-xl border border-white/10 bg-ink-900/85 p-5 shadow-card sm:p-7">
-          <Link className="text-sm font-black uppercase tracking-[0.14em] text-brass" href="/">
+        <article className="mx-auto max-w-3xl panel sm:p-8">
+          <Link className="text-sm font-bold text-brass" href="/">
             Dicehall
           </Link>
-          <h1 className="mt-4 text-3xl font-black text-stone-50">Privacy Notice</h1>
+          <h1 className="mt-4 text-3xl font-bold text-stone-50">Privacy Notice</h1>
 
           <section className="mt-7 grid gap-3">
-            <h2 className="text-lg font-black text-stone-50">Controller</h2>
+            <h2 className="text-lg font-bold text-stone-50">Controller</h2>
             <p className="text-sm leading-7 text-stone-300">
               Site operator: Mario Kerndler. Contact: mariokerndler@gmail.com. Address:
               Donaustadtstraße 30/9/4/14, 1220 Vienna, Austria.
@@ -20,7 +20,7 @@ export default function PrivacyPage() {
           </section>
 
           <section className="mt-7 grid gap-3">
-            <h2 className="text-lg font-black text-stone-50">Data processed by Dicehall</h2>
+            <h2 className="text-lg font-bold text-stone-50">Data processed by Dicehall</h2>
             <ul className="grid gap-2 text-sm leading-7 text-stone-300">
               <li>Lobby and dice data are held in server memory while a lobby is active.</li>
               <li>Browser session storage keeps your local lobby identity for the current browser session.</li>
@@ -31,7 +31,7 @@ export default function PrivacyPage() {
           </section>
 
           <section className="mt-7 grid gap-3">
-            <h2 className="text-lg font-black text-stone-50">Purpose and legal basis</h2>
+            <h2 className="text-lg font-bold text-stone-50">Purpose and legal basis</h2>
             <p className="text-sm leading-7 text-stone-300">
               Dicehall processes technical and lobby data to provide the dice rolling service requested by
               users. Anonymous feedback is used to maintain and improve the service. If hosting logs are
@@ -40,7 +40,7 @@ export default function PrivacyPage() {
           </section>
 
           <section className="mt-7 grid gap-3">
-            <h2 className="text-lg font-black text-stone-50">Retention</h2>
+            <h2 className="text-lg font-bold text-stone-50">Retention</h2>
             <p className="text-sm leading-7 text-stone-300">
               Active lobby data expires from memory when the lobby expires, the server restarts, or the app
               is redeployed. Anonymous feedback should be reviewed and deleted when no longer needed; the
@@ -50,7 +50,7 @@ export default function PrivacyPage() {
           </section>
 
           <section className="mt-7 grid gap-3">
-            <h2 className="text-lg font-black text-stone-50">Cookies and local storage</h2>
+            <h2 className="text-lg font-bold text-stone-50">Cookies and local storage</h2>
             <p className="text-sm leading-7 text-stone-300">
               Dicehall does not use analytics, advertising, or marketing cookies. It uses only storage and
               connection mechanisms needed to provide the requested realtime lobby experience. Add a consent
@@ -60,7 +60,7 @@ export default function PrivacyPage() {
           </section>
 
           <section className="mt-7 grid gap-3">
-            <h2 className="text-lg font-black text-stone-50">Your rights</h2>
+            <h2 className="text-lg font-bold text-stone-50">Your rights</h2>
             <p className="text-sm leading-7 text-stone-300">
               Where GDPR applies, you may have rights to information, access, rectification, erasure,
               restriction, portability, objection, and complaint to a data protection authority. Contact

@@ -1,6 +1,6 @@
 "use client";
 
-import { Dices, DoorOpen, Sparkles } from "lucide-react";
+import { Dices, DoorOpen } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { io, type Socket } from "socket.io-client";
 import { DiceAnimation } from "../components/DiceAnimation";
@@ -57,7 +57,8 @@ export default function Home() {
   const [lobby, setLobby] = useState<LobbyState | null>(null);
   const [pendingRolls, setPendingRolls] = useState<PendingRoll[]>([]);
   const [error, setError] = useState("");
-  const [isBusy, setIsBusy] = useState(false);
+  const [busyAction, setBusyAction] = useState<"create" | "join" | "restore" | null>(null);
+  const isBusy = busyAction !== null;
   const [isJoined, setIsJoined] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const socketRef = useRef<Socket | null>(null);
@@ -101,7 +102,7 @@ export default function Home() {
     setJoined(false);
     applyLobbyState(null);
     setPendingRolls([]);
-    setIsBusy(false);
+    setBusyAction(null);
     updateSession({ lobbyCode: "" });
   }, [setJoined, applyLobbyState, updateSession]);
 
@@ -143,7 +144,7 @@ export default function Home() {
         }
 
         acceptSession(response.data);
-        setIsBusy(false);
+        setBusyAction(null);
         setError("");
       });
     }
@@ -152,7 +153,7 @@ export default function Home() {
       const generation = ++generationRef.current;
       clearTimeout(retryTimer);
       setJoined(false);
-      setIsBusy(Boolean(sessionRef.current.lobbyCode));
+      setBusyAction(sessionRef.current.lobbyCode ? "restore" : null);
       setError(sessionRef.current.lobbyCode ? "Restoring your lobby connection…" : "");
       resumeLobby(generation);
     });
@@ -161,7 +162,7 @@ export default function Home() {
       generationRef.current += 1;
       clearTimeout(retryTimer);
       setJoined(false);
-      setIsBusy(false);
+      setBusyAction(null);
       setPendingRolls([]);
       if (sessionRef.current.lobbyCode) {
         setError("Connection lost. Reconnecting to your lobby…");
@@ -265,7 +266,7 @@ export default function Home() {
       return;
     }
 
-    setIsBusy(true);
+    setBusyAction("create");
     setError("");
     const generation = ++generationRef.current;
     socketRef.current.timeout(5000).emit(
@@ -275,7 +276,7 @@ export default function Home() {
       },
       (timeout: Error | null, response?: Ack<PlayerSessionResponse>) => {
         if (generation !== generationRef.current) return;
-        setIsBusy(false);
+        setBusyAction(null);
         const data = handleAck(timeout ? undefined : response, generation);
 
         if (data) {
@@ -298,7 +299,7 @@ export default function Home() {
       return;
     }
 
-    setIsBusy(true);
+    setBusyAction("join");
     setError("");
     const generation = ++generationRef.current;
     socketRef.current.timeout(5000).emit(
@@ -311,7 +312,7 @@ export default function Home() {
       },
       (timeout: Error | null, response?: Ack<PlayerSessionResponse>) => {
         if (generation !== generationRef.current) return;
-        setIsBusy(false);
+        setBusyAction(null);
         const data = handleAck(timeout ? undefined : response, generation);
 
         if (data) {
@@ -417,17 +418,14 @@ export default function Home() {
   if (lobby && currentPlayer) {
     return (
       <>
-        <main className="min-h-screen px-4 py-5 sm:px-6 lg:px-8">
-          <div className="mx-auto grid max-w-7xl gap-5">
-            <div className="grid gap-3 sm:grid-cols-[1fr_auto] sm:items-start">
-              <LobbyHeader
-                code={lobby.code}
-                username={currentPlayer.username}
-                isHost={isHost}
-                onLeave={leaveLobby}
-              />
-              <FeedbackButton pageContext="lobby" />
-            </div>
+        <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
+          <div className="mx-auto grid max-w-7xl gap-6">
+            <LobbyHeader
+              code={lobby.code}
+              username={currentPlayer.username}
+              isHost={isHost}
+              onLeave={leaveLobby}
+            />
 
             {error ? (
               <div role="alert" className="rounded-lg border border-crimson/40 bg-crimson/10 px-4 py-3 text-sm font-semibold text-crimson">
@@ -435,20 +433,20 @@ export default function Home() {
               </div>
             ) : null}
 
-            <div className="grid gap-5 lg:grid-cols-[1fr_22rem]">
-              <div className="grid gap-5 xl:grid-cols-[24rem_1fr]">
+            <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_16rem]">
+              <div className="grid content-start gap-6 md:grid-cols-[18rem_minmax(0,1fr)]">
                 <DiceRoller
                   disabled={!isJoined}
                   diceColor={currentPlayer.diceColor}
                   onRoll={rollDice}
                 />
-                <div className="grid gap-5">
+                <div className="grid min-w-0 content-start gap-6">
                   <DiceAnimation pendingRolls={pendingRolls} />
                   <RollLog rolls={visibleRolls} />
                 </div>
               </div>
 
-              <aside className="grid content-start gap-5">
+              <aside className="grid content-start gap-6 md:grid-cols-2 xl:grid-cols-1">
                 <PlayerList
                   disabled={!isJoined}
                   players={lobby.players}
@@ -468,7 +466,9 @@ export default function Home() {
             </div>
           </div>
         </main>
-        <SiteFooter />
+        <SiteFooter>
+          <FeedbackButton pageContext="lobby" variant="link" />
+        </SiteFooter>
       </>
     );
   }
@@ -476,34 +476,28 @@ export default function Home() {
   return (
     <>
       <main className="min-h-screen px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-6xl items-center gap-8 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="mx-auto grid max-w-5xl items-start gap-8 lg:grid-cols-2">
           <section>
-            <div className="mb-6 inline-flex h-12 w-12 items-center justify-center rounded-xl border border-brass/40 bg-brass/10 text-brass shadow-glow">
-              <Dices size={26} />
-            </div>
-            <h1 className="max-w-2xl text-5xl font-black leading-tight text-stone-50 sm:text-6xl">
+            <div className="mb-6 inline-flex items-center gap-3 text-lg font-bold text-stone-200">
+              <Dices size={20} className="text-brass" />
               Dicehall
+            </div>
+            <h1 className="text-3xl font-bold leading-tight text-stone-50">
+              Roll dice with your party
             </h1>
-            <p className="mt-5 max-w-xl text-lg leading-8 text-stone-300">
+            <p className="mt-4 max-w-xl text-base leading-7 text-stone-300">
               Real-time dice rolls for online campaigns. Create a lobby, share the code, and keep
               every player&apos;s rolls visible at the table.
             </p>
-            <div className="mt-8 grid max-w-xl gap-3 sm:grid-cols-3">
-              {["Shared lobbies", "Live roll log", "DM controls"].map((item) => (
-                <div key={item} className="rounded-lg border border-white/10 bg-white/[0.035] p-3">
-                  <p className="text-sm font-bold text-stone-200">{item}</p>
-                </div>
-              ))}
-            </div>
             <div className="mt-6">
               <FeedbackButton pageContext="home" />
             </div>
           </section>
 
-          <section className="rounded-xl border border-white/10 bg-ink-900/85 p-5 shadow-card">
-            <div className="mb-5 flex items-center gap-2">
-              <Sparkles size={18} className="text-brass" />
-              <h2 className="text-xl font-black text-stone-50">Start rolling</h2>
+          <section className="panel">
+            <p role="status" className="sr-only">{isBusy ? "Connecting to your lobby…" : ""}</p>
+            <div className="mb-6 flex items-center gap-2">
+              <h2 className="text-xl font-bold text-stone-50">Start rolling</h2>
             </div>
 
             {error ? (
@@ -512,9 +506,9 @@ export default function Home() {
               </div>
             ) : null}
 
-            <div className="grid gap-5">
-              <form onSubmit={(event) => { event.preventDefault(); if (!isBusy) void createLobby(); }} className="rounded-lg border border-brass/30 bg-brass/10 p-4">
-                <h3 className="font-black text-stone-50">Create lobby</h3>
+            <div className="grid gap-0">
+              <form onSubmit={(event) => { event.preventDefault(); if (!isBusy) void createLobby(); }} className="pb-6">
+                <h3 className="font-bold text-stone-50">Create lobby</h3>
                 <label className="mt-4 block">
                   <span className="text-sm font-semibold text-stone-300">DM name</span>
                   <input
@@ -523,21 +517,22 @@ export default function Home() {
                     placeholder="Mira the DM"
                     required
                     maxLength={24}
-                    className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none placeholder:text-stone-600 focus:border-brass focus:ring-2 focus:ring-brass/30"
+                    className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none placeholder:text-stone-400 focus:border-brass focus:ring-2 focus:ring-brass/30"
                   />
                 </label>
                 <button
                   type="submit"
+                  aria-busy={busyAction === "create"}
                   disabled={isBusy}
-                  className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brass px-4 text-sm font-black uppercase tracking-[0.14em] text-ink-950 transition hover:bg-[#e2ad66] focus:outline-none focus:ring-2 focus:ring-brass disabled:opacity-50"
+                  className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brass px-4 text-sm font-bold text-ink-950 transition hover:bg-[#e2ad66] focus:outline-none focus:ring-2 focus:ring-brass disabled:opacity-50"
                 >
                   <DoorOpen size={18} />
-                  Create Lobby
+                  {busyAction === "create" ? "Creating lobby…" : "Create lobby"}
                 </button>
               </form>
 
-              <form onSubmit={(event) => { event.preventDefault(); if (!isBusy) void joinLobby(); }} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
-                <h3 className="font-black text-stone-50">Join lobby</h3>
+              <form onSubmit={(event) => { event.preventDefault(); if (!isBusy) void joinLobby(); }} className="border-t border-white/10 pt-6">
+                <h3 className="font-bold text-stone-50">Join lobby</h3>
                 <div className="mt-4 grid gap-3 sm:grid-cols-[0.8fr_1.2fr]">
                   <label className="block">
                     <span className="text-sm font-semibold text-stone-300">Lobby code</span>
@@ -551,7 +546,7 @@ export default function Home() {
                       autoCapitalize="characters"
                       spellCheck={false}
                       maxLength={6}
-                      className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 font-black uppercase tracking-[0.18em] text-stone-50 outline-none placeholder:text-stone-600 focus:border-brass focus:ring-2 focus:ring-brass/30"
+                      className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 font-bold text-stone-50 outline-none placeholder:text-stone-400 focus:border-brass focus:ring-2 focus:ring-brass/30"
                     />
                   </label>
                   <label className="block">
@@ -562,16 +557,17 @@ export default function Home() {
                       placeholder="Alice"
                       required
                       maxLength={24}
-                      className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none placeholder:text-stone-600 focus:border-brass focus:ring-2 focus:ring-brass/30"
+                      className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none placeholder:text-stone-400 focus:border-brass focus:ring-2 focus:ring-brass/30"
                     />
                   </label>
                 </div>
                 <button
                   type="submit"
+                  aria-busy={busyAction === "join"}
                   disabled={isBusy}
-                  className="mt-4 h-11 w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm font-black uppercase tracking-[0.14em] text-stone-100 transition hover:border-brass/60 focus:outline-none focus:ring-2 focus:ring-brass disabled:opacity-50"
+                  className="mt-4 h-11 w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm font-bold text-stone-100 transition hover:border-brass/60 focus:outline-none focus:ring-2 focus:ring-brass disabled:opacity-50"
                 >
-                  Join Lobby
+                  {busyAction === "join" ? "Joining lobby…" : "Join lobby"}
                 </button>
               </form>
             </div>

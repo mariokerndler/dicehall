@@ -27,17 +27,20 @@ function getDieLabel(expression?: string): string {
 function DiceFace({
   color,
   label,
-  index
+  index,
+  count
 }: {
   color: string;
   label: string;
   index: number;
+  count: number;
 }) {
-  const left = 16 + index * 11;
-  const top = 48 + (index % 2 === 0 ? -8 : 10);
+  const left = (index - (count - 1) / 2) * 36 - 30;
+  const top = -64 + (index % 2 === 0 ? -8 : 10);
 
   return (
     <div
+      aria-hidden="true"
       className="dice-piece absolute grid place-items-center"
       style={
         {
@@ -52,11 +55,7 @@ function DiceFace({
         } as React.CSSProperties
       }
     >
-      <span className="dice-shine" />
-      <span className="relative text-base font-black text-white drop-shadow">d{label}</span>
-      <span className="pip pip-a" />
-      <span className="pip pip-b" />
-      <span className="pip pip-c" />
+      <span className="relative text-base font-bold rounded bg-ink-950 px-1 text-stone-50">d{label}</span>
     </div>
   );
 }
@@ -67,24 +66,18 @@ export function DiceAnimation({ pendingRolls }: DiceAnimationProps) {
   const dieLabel = getDieLabel(active?.expression);
 
   return (
-    <section className="rounded-xl border border-white/10 bg-ink-900/80 p-5 shadow-card">
+    <section className="panel">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-lg font-bold text-stone-50">Rolling tray</h2>
           <p className="text-sm text-stone-400">Results reveal after the toss lands.</p>
         </div>
-        <div className="rounded-full border border-white/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-stone-400">
-          Live
-        </div>
       </div>
 
-      <div className="relative min-h-44 overflow-hidden rounded-lg border border-white/10 bg-[radial-gradient(circle_at_center,rgba(215,155,74,0.12),transparent_60%),linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0.02))]">
-        <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(90deg,#fff_1px,transparent_1px),linear-gradient(#fff_1px,transparent_1px)] [background-size:28px_28px]" />
+      <div role="status" aria-live="polite" aria-atomic="true" className="relative min-h-48 overflow-hidden rounded-lg bg-ink-950">
 
         {active ? (
-          <div className="relative h-44 overflow-hidden px-6">
-            <div className="absolute inset-x-6 bottom-7 h-8 rounded-[50%] bg-black/30 blur-md" />
-            <div className="absolute left-1/2 top-7 h-24 w-56 -translate-x-1/2 rounded-full border border-brass/20 bg-brass/5 blur-sm" />
+          <div className="relative h-48 overflow-hidden px-6">
 
             <div className="absolute inset-0">
               {Array.from({ length: diceCount }).map((_, index) => (
@@ -93,21 +86,21 @@ export function DiceAnimation({ pendingRolls }: DiceAnimationProps) {
                   color={active.diceColor}
                   label={dieLabel}
                   index={index}
+                  count={diceCount}
                 />
               ))}
             </div>
 
-            <div className="absolute inset-x-5 bottom-4 rounded-lg border border-white/10 bg-ink-950/70 px-4 py-3 text-center shadow-card backdrop-blur">
+            <div className="absolute inset-x-4 bottom-4 rounded-lg border border-white/10 bg-ink-900 px-4 py-3">
               <p className="text-sm font-semibold text-stone-200">{active.playerName} is rolling</p>
-              <p className="mt-1 text-2xl font-black text-stone-50">{active.expression}</p>
+              <p className="mt-1 text-2xl font-bold text-stone-50">{active.expression}</p>
             </div>
           </div>
         ) : (
-          <div className="relative flex h-44 flex-col items-center justify-center px-6 text-center">
-            <p className="text-sm font-semibold uppercase tracking-[0.22em] text-brass">Ready</p>
-            <p className="mt-2 text-2xl font-black text-stone-50">Choose dice and roll</p>
+          <div className="relative flex h-48 flex-col justify-center px-6">
+            <p className="text-lg font-bold text-stone-50">Choose dice and roll</p>
             <p className="mt-2 max-w-sm text-sm text-stone-400">
-              Everyone in the lobby sees the same roll animation and final result.
+              Public rolls are shared with the lobby. DM-only results stay private.
             </p>
           </div>
         )}
@@ -120,13 +113,7 @@ export function DiceAnimation({ pendingRolls }: DiceAnimationProps) {
           height: 3.75rem;
           width: 3.75rem;
           border: 1px solid rgba(255, 255, 255, 0.38);
-          background:
-            radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.42), transparent 0.9rem),
-            linear-gradient(135deg, var(--dice-color), rgba(255, 255, 255, 0.16));
-          box-shadow:
-            inset -10px -12px 18px rgba(0, 0, 0, 0.28),
-            inset 7px 8px 14px rgba(255, 255, 255, 0.18),
-            0 18px 36px rgba(0, 0, 0, 0.42);
+          background: var(--dice-color);
           clip-path: polygon(50% 0%, 92% 24%, 92% 76%, 50% 100%, 8% 76%, 8% 24%);
           animation: dice-roll 920ms cubic-bezier(0.14, 0.82, 0.28, 1) var(--delay) both;
           transform-origin: 50% 55%;
@@ -139,41 +126,6 @@ export function DiceAnimation({ pendingRolls }: DiceAnimationProps) {
 
         .dice-piece:nth-child(3n) {
           clip-path: polygon(50% 2%, 96% 82%, 4% 82%);
-        }
-
-        .dice-shine {
-          position: absolute;
-          inset: 0.5rem 0.75rem auto auto;
-          height: 0.8rem;
-          width: 1.1rem;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.34);
-          filter: blur(1px);
-          transform: rotate(-28deg);
-        }
-
-        .pip {
-          position: absolute;
-          height: 0.28rem;
-          width: 0.28rem;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.9);
-          box-shadow: 0 0 8px rgba(255, 255, 255, 0.28);
-        }
-
-        .pip-a {
-          left: 1rem;
-          top: 1rem;
-        }
-
-        .pip-b {
-          bottom: 1rem;
-          right: 1rem;
-        }
-
-        .pip-c {
-          bottom: 0.9rem;
-          left: 1.35rem;
         }
 
         @keyframes dice-roll {
@@ -199,7 +151,9 @@ export function DiceAnimation({ pendingRolls }: DiceAnimationProps) {
 
         @media (prefers-reduced-motion: reduce) {
           .dice-piece {
-            animation-duration: 1ms;
+            animation: none;
+            opacity: 1;
+            transform: translate3d(var(--end-x), var(--end-y), 0);
           }
         }
       `}</style>

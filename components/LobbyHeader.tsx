@@ -27,18 +27,18 @@ export function LobbyHeader({ code, username, isHost, onLeave }: LobbyHeaderProp
   }
 
   return (
-    <header className="rounded-xl border border-white/10 bg-ink-900/80 p-5 shadow-card">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <header className="panel">
+      <div className="flex min-w-0 flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
-          <p className="text-sm font-semibold text-stone-400">
+          <p className="break-words text-sm font-semibold text-stone-400">
             {isHost ? "Hosting as DM" : "Joined as player"} · {username}
           </p>
-          <h1 className="mt-1 text-3xl font-black text-stone-50">Dicehall</h1>
+          <h1 className="mt-1 text-2xl font-bold text-stone-50">Dicehall</h1>
         </div>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <div className="rounded-lg border border-brass/40 bg-brass/10 px-4 py-3">
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-brass">Lobby code</p>
-            <p className="select-all text-2xl font-black tracking-[0.22em] text-stone-50">{code}</p>
+          <div className="rounded-lg border border-white/10 bg-ink-950 px-4 py-3">
+            <p className="text-xs font-bold text-brass">Lobby code</p>
+            <p className="select-all text-2xl font-bold tracking-widest text-stone-50">{code}</p>
           </div>
           <button
             type="button"
@@ -58,7 +58,7 @@ export function LobbyHeader({ code, username, isHost, onLeave }: LobbyHeaderProp
           </button>
         </div>
       </div>
-      <p role="status" className="mt-2 text-sm text-stone-300">{copyError || (copied ? "Lobby code copied." : "")}</p>
+      <p role="status" className={`mt-2 min-h-5 text-sm text-stone-300 ${copied ? "success-pulse" : ""}`}>{copyError || (copied ? "Lobby code copied." : "")}</p>
     </header>
   );
 }
