@@ -12,11 +12,18 @@ type LobbyHeaderProps = {
 
 export function LobbyHeader({ code, username, isHost, onLeave }: LobbyHeaderProps) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState("");
 
   async function copyCode() {
-    await navigator.clipboard.writeText(code);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1400);
+    setCopyError("");
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    } catch {
+      setCopied(false);
+      setCopyError("Could not copy. Select the lobby code and copy it manually.");
+    }
   }
 
   return (
@@ -31,7 +38,7 @@ export function LobbyHeader({ code, username, isHost, onLeave }: LobbyHeaderProp
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <div className="rounded-lg border border-brass/40 bg-brass/10 px-4 py-3">
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-brass">Lobby code</p>
-            <p className="text-2xl font-black tracking-[0.22em] text-stone-50">{code}</p>
+            <p className="select-all text-2xl font-black tracking-[0.22em] text-stone-50">{code}</p>
           </div>
           <button
             type="button"
@@ -51,6 +58,7 @@ export function LobbyHeader({ code, username, isHost, onLeave }: LobbyHeaderProp
           </button>
         </div>
       </div>
+      <p role="status" className="mt-2 text-sm text-stone-300">{copyError || (copied ? "Lobby code copied." : "")}</p>
     </header>
   );
 }
