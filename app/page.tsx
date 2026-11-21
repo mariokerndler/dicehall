@@ -16,6 +16,7 @@ import { shouldHandleLobbyClosedEvent } from "../lib/lobby-events";
 import type { LobbyState, Player } from "../lib/lobby";
 import { normalizeLobbyCode } from "../lib/lobby";
 import { getSocketTransports } from "../lib/socket";
+import { getInitialSession, saveSession, type Session } from "../lib/session";
 
 type PendingRoll = {
   code: string;
@@ -30,58 +31,7 @@ type Ack<T> = { ok: true; data: T } | { ok: false; error: string; retryable?: bo
 
 type PlayerSessionResponse = { state: LobbyState; player: Player; sessionToken: string };
 
-type Session = {
-  playerId: string;
-  sessionToken: string;
-  username: string;
-  diceColor: string;
-  lobbyCode: string;
-};
-
-const SESSION_KEY = "dicehall-session";
-const DEFAULT_COLOR = "#d79b4a";
 const SESSION_RENEWAL_WARNING_MS = 10 * 60 * 1000;
-
-function getInitialSession(): Session {
-  if (typeof window === "undefined") {
-    return {
-      playerId: "",
-      sessionToken: "",
-      username: "",
-      diceColor: DEFAULT_COLOR,
-      lobbyCode: ""
-    };
-  }
-
-  const stored = window.sessionStorage.getItem(SESSION_KEY);
-
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored) as Partial<Session>;
-      return {
-        playerId: parsed.playerId || "",
-        sessionToken: parsed.sessionToken || "",
-        username: parsed.username || "",
-        diceColor: parsed.diceColor || DEFAULT_COLOR,
-        lobbyCode: parsed.lobbyCode || ""
-      };
-    } catch {
-      window.sessionStorage.removeItem(SESSION_KEY);
-    }
-  }
-
-  return {
-    playerId: "",
-    sessionToken: "",
-    username: "",
-    diceColor: DEFAULT_COLOR,
-    lobbyCode: ""
-  };
-}
-
-function saveSession(session: Session) {
-  window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-}
 
 function formatTimeLeft(milliseconds: number): string {
   const totalMinutes = Math.max(0, Math.ceil(milliseconds / 60_000));
