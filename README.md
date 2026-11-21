@@ -27,8 +27,8 @@ To test multiplayer locally, open two browser windows or two browser profiles. C
 
 ```bash
 npm run dev     # Start the custom Next.js + Socket.IO server
-npm run test    # Run Vitest dice logic tests
-npm run lint    # Run Next.js linting
+npm run test    # Run the Vitest test suite
+npm run lint    # Run ESLint
 npm run build   # Build the Next.js app
 npm run start   # Start the production custom server after build
 ```

@@ -16,6 +16,7 @@ import { shouldHandleLobbyClosedEvent } from "../lib/lobby-events";
 import type { LobbyState, Player } from "../lib/lobby";
 import { normalizeLobbyCode } from "../lib/lobby";
 import { getSocketTransports } from "../lib/socket";
+import { getInitialSession, saveSession, type Session } from "../lib/session";
 
 type PendingRoll = {
   code: string;
@@ -30,58 +31,7 @@ type Ack<T> = { ok: true; data: T } | { ok: false; error: string; retryable?: bo
 
 type PlayerSessionResponse = { state: LobbyState; player: Player; sessionToken: string };
 
-type Session = {
-  playerId: string;
-  sessionToken: string;
-  username: string;
-  diceColor: string;
-  lobbyCode: string;
-};
-
-const SESSION_KEY = "dicehall-session";
-const DEFAULT_COLOR = "#d79b4a";
 const SESSION_RENEWAL_WARNING_MS = 10 * 60 * 1000;
-
-function getInitialSession(): Session {
-  if (typeof window === "undefined") {
-    return {
-      playerId: "",
-      sessionToken: "",
-      username: "",
-      diceColor: DEFAULT_COLOR,
-      lobbyCode: ""
-    };
-  }
-
-  const stored = window.sessionStorage.getItem(SESSION_KEY);
-
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored) as Partial<Session>;
-      return {
-        playerId: parsed.playerId || "",
-        sessionToken: parsed.sessionToken || "",
-        username: parsed.username || "",
-        diceColor: parsed.diceColor || DEFAULT_COLOR,
-        lobbyCode: parsed.lobbyCode || ""
-      };
-    } catch {
-      window.sessionStorage.removeItem(SESSION_KEY);
-    }
-  }
-
-  return {
-    playerId: "",
-    sessionToken: "",
-    username: "",
-    diceColor: DEFAULT_COLOR,
-    lobbyCode: ""
-  };
-}
-
-function saveSession(session: Session) {
-  window.sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
-}
 
 function formatTimeLeft(milliseconds: number): string {
   const totalMinutes = Math.max(0, Math.ceil(milliseconds / 60_000));
@@ -480,7 +430,7 @@ export default function Home() {
             </div>
 
             {error ? (
-              <div className="rounded-lg border border-crimson/40 bg-crimson/10 px-4 py-3 text-sm font-semibold text-crimson">
+              <div role="alert" className="rounded-lg border border-crimson/40 bg-crimson/10 px-4 py-3 text-sm font-semibold text-crimson">
                 {error}
               </div>
             ) : null}
@@ -557,13 +507,13 @@ export default function Home() {
             </div>
 
             {error ? (
-              <div className="mb-4 rounded-lg border border-crimson/40 bg-crimson/10 px-4 py-3 text-sm font-semibold text-crimson">
+              <div role="alert" className="mb-4 rounded-lg border border-crimson/40 bg-crimson/10 px-4 py-3 text-sm font-semibold text-crimson">
                 {error}
               </div>
             ) : null}
 
             <div className="grid gap-5">
-              <div className="rounded-lg border border-brass/30 bg-brass/10 p-4">
+              <form onSubmit={(event) => { event.preventDefault(); if (!isBusy) void createLobby(); }} className="rounded-lg border border-brass/30 bg-brass/10 p-4">
                 <h3 className="font-black text-stone-50">Create lobby</h3>
                 <label className="mt-4 block">
                   <span className="text-sm font-semibold text-stone-300">DM name</span>
@@ -571,21 +521,22 @@ export default function Home() {
                     value={hostName}
                     onChange={(event) => setHostName(event.target.value)}
                     placeholder="Mira the DM"
+                    required
+                    maxLength={24}
                     className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none placeholder:text-stone-600 focus:border-brass focus:ring-2 focus:ring-brass/30"
                   />
                 </label>
                 <button
-                  type="button"
+                  type="submit"
                   disabled={isBusy}
-                  onClick={createLobby}
                   className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-brass px-4 text-sm font-black uppercase tracking-[0.14em] text-ink-950 transition hover:bg-[#e2ad66] focus:outline-none focus:ring-2 focus:ring-brass disabled:opacity-50"
                 >
                   <DoorOpen size={18} />
                   Create Lobby
                 </button>
-              </div>
+              </form>
 
-              <div className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
+              <form onSubmit={(event) => { event.preventDefault(); if (!isBusy) void joinLobby(); }} className="rounded-lg border border-white/10 bg-white/[0.035] p-4">
                 <h3 className="font-black text-stone-50">Join lobby</h3>
                 <div className="mt-4 grid gap-3 sm:grid-cols-[0.8fr_1.2fr]">
                   <label className="block">
@@ -594,6 +545,11 @@ export default function Home() {
                       value={joinCode}
                       onChange={(event) => setJoinCode(normalizeLobbyCode(event.target.value))}
                       placeholder="ABC123"
+                      required
+                      pattern="[A-Z0-9]{6}"
+                      title="Enter a six-character lobby code"
+                      autoCapitalize="characters"
+                      spellCheck={false}
                       maxLength={6}
                       className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 font-black uppercase tracking-[0.18em] text-stone-50 outline-none placeholder:text-stone-600 focus:border-brass focus:ring-2 focus:ring-brass/30"
                     />
@@ -604,19 +560,20 @@ export default function Home() {
                       value={joinName}
                       onChange={(event) => setJoinName(event.target.value)}
                       placeholder="Alice"
+                      required
+                      maxLength={24}
                       className="mt-2 h-11 w-full rounded-lg border border-white/10 bg-ink-950/60 px-3 text-stone-50 outline-none placeholder:text-stone-600 focus:border-brass focus:ring-2 focus:ring-brass/30"
                     />
                   </label>
                 </div>
                 <button
-                  type="button"
+                  type="submit"
                   disabled={isBusy}
-                  onClick={joinLobby}
                   className="mt-4 h-11 w-full rounded-lg border border-white/10 bg-white/[0.04] px-4 text-sm font-black uppercase tracking-[0.14em] text-stone-100 transition hover:border-brass/60 focus:outline-none focus:ring-2 focus:ring-brass disabled:opacity-50"
                 >
                   Join Lobby
                 </button>
-              </div>
+              </form>
             </div>
           </section>
         </div>
