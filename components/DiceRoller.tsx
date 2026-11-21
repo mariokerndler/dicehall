@@ -6,6 +6,7 @@ import {
   formatRollRequestExpression,
   getDiceSelectValue,
   SUPPORTED_DICE,
+  validateRollRequest,
   type DiceInputMode,
   type DiceTerm,
   type RollVisibility
@@ -36,13 +37,8 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
   const [modifier, setModifier] = useState(0);
   const [visibility, setVisibility] = useState<RollVisibility>("public");
 
-  const expression = useMemo(() => {
-    try {
-      return formatRollRequestExpression({ terms, modifier });
-    } catch {
-      return "Fix dice selection";
-    }
-  }, [modifier, terms]);
+  const validation = useMemo(() => validateRollRequest({ terms, modifier }), [modifier, terms]);
+  const expression = validation.ok ? formatRollRequestExpression(validation) : "Fix dice selection";
 
   function updateTerm(id: string, patch: Partial<Omit<DraftTerm, "id">>) {
     setTerms((current) =>
@@ -204,9 +200,9 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
 
       <button
         type="button"
-        disabled={disabled}
+        disabled={disabled || !validation.ok}
         onClick={() =>
-          onRoll({
+          validation.ok && onRoll({
             terms: terms.map((term) => ({ quantity: term.quantity, sides: term.sides })),
             modifier,
             visibility
@@ -217,6 +213,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
         <RotateCcw size={18} />
         Roll
       </button>
+      {!validation.ok ? <p role="status" className="mt-3 text-sm text-crimson">{validation.error}</p> : null}
     </section>
   );
 }
