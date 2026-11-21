@@ -17,8 +17,7 @@ const config: Config = {
         arcane: "#7aa2ff"
       },
       boxShadow: {
-        glow: "0 0 36px rgba(215, 155, 74, 0.15)",
-        card: "0 18px 60px rgba(0, 0, 0, 0.34)"
+        card: "0 2px 8px rgba(0, 0, 0, 0.08)"
       }
     }
   },

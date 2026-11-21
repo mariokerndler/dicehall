@@ -11,7 +11,7 @@ type DiceSelectorProps = {
 export function DiceSelector({ selected, onSelect }: DiceSelectorProps) {
   return (
     <fieldset>
-      <legend className="mb-3 text-sm font-semibold uppercase tracking-[0.18em] text-stone-400">
+      <legend className="mb-3 text-sm font-semibold text-stone-400">
         Dice
       </legend>
       <div className="grid grid-cols-4 gap-2 sm:grid-cols-7">
@@ -24,7 +24,7 @@ export function DiceSelector({ selected, onSelect }: DiceSelectorProps) {
             className={clsx(
               "h-12 rounded-lg border text-sm font-bold transition focus:outline-none focus:ring-2 focus:ring-brass",
               selected === sides
-                ? "border-brass bg-brass text-ink-950 shadow-glow"
+                ? "border-brass bg-brass text-ink-950"
                 : "border-white/10 bg-white/[0.04] text-stone-200 hover:border-brass/60 hover:bg-white/[0.07]"
             )}
           >

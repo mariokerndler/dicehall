@@ -55,8 +55,8 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
   }
 
   return (
-    <section className="rounded-xl border border-white/10 bg-ink-900/80 p-5 shadow-card">
-      <div className="mb-5 flex items-start justify-between gap-4">
+    <section className="panel self-start">
+      <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h2 className="text-lg font-bold text-stone-50">Dice controls</h2>
           <div className="mt-1 flex items-center gap-2 text-sm text-stone-400">
@@ -64,23 +64,23 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
             Your assigned dice color
           </div>
         </div>
-        <div className="rounded-lg border border-brass/40 bg-brass/10 px-3 py-2 text-sm font-bold text-brass">
+        <div className="min-w-0 max-w-[50%] break-words text-right text-lg font-bold tabular-nums text-brass">
           {expression}
         </div>
       </div>
 
       <div className="space-y-3">
         <div className="flex items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-stone-400">
+          <h3 className="text-sm font-semibold text-stone-400">
             Dice groups
           </h3>
-          <span className="text-xs text-stone-500">Max 20 dice total</span>
+          <span className="text-xs text-stone-400">Max 20 dice total</span>
         </div>
 
         {terms.map((term, index) => (
           <div
             key={term.id}
-            className="grid grid-cols-[4.5rem_1fr_2.75rem] items-end gap-2 rounded-lg border border-white/10 bg-white/[0.035] p-3"
+            className="grid grid-cols-[3.75rem_minmax(0,1fr)_2.5rem] items-end gap-2 rounded-lg bg-white/[0.035] p-3"
           >
             <label className="block">
               <span className="text-xs font-semibold text-stone-400">Qty</span>
@@ -152,7 +152,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
               key={sides}
               type="button"
               onClick={() => addTerm(sides)}
-              className="inline-flex h-9 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-stone-200 transition hover:border-brass/60 hover:text-brass focus:outline-none focus:ring-2 focus:ring-brass"
+              className="inline-flex h-10 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-stone-200 transition hover:border-brass/60 hover:text-brass focus:outline-none focus:ring-2 focus:ring-brass"
             >
               <Plus size={13} />
               d{sides}
@@ -161,7 +161,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
           <button
             type="button"
             onClick={() => addTerm(3, "custom")}
-            className="inline-flex h-9 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-stone-200 transition hover:border-brass/60 hover:text-brass focus:outline-none focus:ring-2 focus:ring-brass"
+            className="inline-flex h-10 items-center gap-1 rounded-lg border border-white/10 bg-white/[0.04] px-3 text-xs font-bold text-stone-200 transition hover:border-brass/60 hover:text-brass focus:outline-none focus:ring-2 focus:ring-brass"
           >
             <Plus size={13} />
             Custom
@@ -169,7 +169,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
         </div>
       </div>
 
-      <div className="mt-5">
+      <div className="mt-6">
         <label className="block">
           <span className="text-sm font-semibold text-stone-300">Modifier</span>
           <input
@@ -183,7 +183,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
         </label>
       </div>
 
-      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-white/[0.035] p-3">
+      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg bg-white/[0.035] p-3">
         <input
           type="checkbox"
           checked={visibility === "dm"}
@@ -208,7 +208,7 @@ export function DiceRoller({ diceColor, onRoll, disabled }: DiceRollerProps) {
             visibility
           })
         }
-        className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-brass px-5 text-sm font-black uppercase tracking-[0.14em] text-ink-950 transition hover:bg-[#e2ad66] focus:outline-none focus:ring-2 focus:ring-brass focus:ring-offset-2 focus:ring-offset-ink-950 disabled:cursor-not-allowed disabled:opacity-50"
+        className="mt-6 inline-flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-brass px-4 text-sm font-bold text-ink-950 transition hover:bg-[#e2ad66] focus:outline-none focus:ring-2 focus:ring-brass focus:ring-offset-2 focus:ring-offset-ink-950 disabled:cursor-not-allowed disabled:opacity-50"
       >
         <RotateCcw size={18} />
         Roll

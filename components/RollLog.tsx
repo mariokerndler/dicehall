@@ -35,14 +35,14 @@ function resultText(roll: Roll) {
 
 export function RollLog({ rolls }: RollLogProps) {
   return (
-    <section className="rounded-xl border border-white/10 bg-ink-900/80 p-5 shadow-card">
+    <section className="panel" role="log" aria-label="Roll results" aria-live="polite" aria-relevant="additions">
       <div className="mb-4 flex items-center gap-2">
         <ScrollText size={18} className="text-brass" />
         <h2 className="text-lg font-bold text-stone-50">Roll log</h2>
       </div>
 
       {rolls.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-white/10 bg-white/[0.025] p-6 text-center text-sm text-stone-400">
+        <div className="rounded-lg border border-white/10 bg-ink-950 p-4 text-sm text-stone-400">
           No rolls yet. The next toss will land here for everyone.
         </div>
       ) : (
@@ -50,19 +50,19 @@ export function RollLog({ rolls }: RollLogProps) {
           {rolls.map((roll, index) => (
             <article
               key={roll.id}
-              className="rounded-lg border bg-white/[0.035] p-4"
+              className="enter-row break-words rounded-lg border bg-white/[0.035] p-4"
               style={{
                 borderColor: index === 0 ? roll.diceColor : "rgba(255,255,255,0.10)",
-                boxShadow: index === 0 ? `0 0 0 1px ${roll.diceColor}55` : undefined
+                animationDelay: `${Math.min(index, 5) * 30}ms`
               }}
             >
               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <p className="font-black text-stone-50">
-                    <span style={{ color: roll.diceColor }}>{roll.playerName}</span> rolled{" "}
+                  <p className="font-bold text-stone-50">
+                    <span>{roll.playerName}</span> rolled{" "}
                     {roll.expression}
                     {roll.visibility === "dm" ? (
-                      <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-arcane/40 bg-arcane/10 px-2 py-0.5 align-middle text-[0.68rem] font-black uppercase tracking-[0.12em] text-arcane">
+                      <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-arcane/40 bg-arcane/10 px-2 py-0.5 align-middle text-[0.68rem] font-bold text-arcane">
                         <EyeOff size={12} />
                         DM only
                       </span>
@@ -70,12 +70,12 @@ export function RollLog({ rolls }: RollLogProps) {
                   </p>
                   <p className="mt-1 text-sm text-stone-300">{resultText(roll)}</p>
                 </div>
-                <div className="flex items-center gap-1 text-xs text-stone-500">
+                <div className="flex items-center gap-1 text-xs tabular-nums text-stone-400">
                   <Clock3 size={13} />
                   {formatTime(roll.timestamp)}
                 </div>
               </div>
-              <p className="mt-3 text-3xl font-black text-stone-50">{roll.total}</p>
+              <p className="mt-3 text-3xl font-bold tabular-nums text-stone-50">{roll.total}</p>
             </article>
           ))}
         </div>
